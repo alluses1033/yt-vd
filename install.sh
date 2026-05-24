@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-repo="dhiraj-rajput/yt-vd"
+repo="alluses1033/yt-vd"
 install_dir="${HOME}/.local/bin"
 base_url="https://github.com/${repo}/releases/latest/download"
 

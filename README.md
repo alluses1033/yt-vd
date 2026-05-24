@@ -2,7 +2,7 @@
 
 A desktop and terminal YouTube downloader for videos, playlists, audio, clips, chapters, subtitles, thumbnails, and download history.
 
-Repository: <https://github.com/dhiraj-rajput/yt-vd>
+Repository: <https://github.com/alluses1033/yt-vd>
 
 > yt-vd is not affiliated with YouTube or Google. Use it only for content you have the right to download.
 
@@ -27,7 +27,7 @@ These installers download the latest release binaries from this repository.
 ### Windows PowerShell
 
 ```powershell
-irm https://raw.githubusercontent.com/dhiraj-rajput/yt-vd/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.ps1 | iex
 ```
 
 Then open a new PowerShell window:
@@ -40,7 +40,7 @@ yt-vd gui
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dhiraj-rajput/yt-vd/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.sh | sh
 ```
 
 If `yt-vd` is not found after install, add this to your shell profile:
@@ -77,7 +77,7 @@ sudo apt install ffmpeg
 Use this if you want to run or develop the Python project directly.
 
 ```bash
-git clone https://github.com/dhiraj-rajput/yt-vd.git
+git clone https://github.com/alluses1033/yt-vd.git
 cd yt-vd
 uv sync
 uv run yt-vd --help

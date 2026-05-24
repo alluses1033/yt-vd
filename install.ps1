@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$Repo = "dhiraj-rajput/yt-vd"
+$Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $Bin = Join-Path $InstallDir "yt-vd.exe"
 $GuiBin = Join-Path $InstallDir "yt-vd-gui.exe"
