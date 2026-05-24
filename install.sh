@@ -18,10 +18,13 @@ mkdir -p "$install_dir"
 download() {
     url="$1"
     out="$2"
+    name="$(basename "$out")"
+    printf '%s\n' "Downloading ${name}..."
+
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$out"
+        curl -fL --progress-bar "$url" -o "$out"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q "$url" -O "$out"
+        wget --show-progress "$url" -O "$out"
     else
         printf '%s\n' "Install curl or wget, then rerun this installer." >&2
         exit 1
