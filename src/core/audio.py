@@ -66,7 +66,7 @@ def extract_audio(
     """
     result = DownloadResult(url=url)
     start_time = time.monotonic()
-    output_path = Path(output_dir)
+    output_path = Path(output_dir).resolve()
     output_path.mkdir(parents=True, exist_ok=True)
 
     progress_hook = kwargs.pop("progress_hook", None)
@@ -85,7 +85,7 @@ def extract_audio(
         video_id = hashlib.md5(url.encode()).hexdigest()[:11]
 
     hook = make_progress_hook(tracker)
-    safety = SafeDownloadManager(output_dir, video_id=video_id)
+    safety = SafeDownloadManager(output_path, video_id=video_id)
 
     # Resolve bitrate to numeric quality (for yt-dlp)
     quality_num = AUDIO_BITRATE_MAP.get(bitrate, 320)

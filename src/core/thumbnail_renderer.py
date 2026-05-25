@@ -62,7 +62,7 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> str:
                 for x in range(width):
                     pixel1 = resized_img.getpixel((x, y))
                     pixel2 = resized_img.getpixel((x, y + 1))
-                    
+
                     # MyPy needs type narrowing to unpack
                     if isinstance(pixel1, tuple) and isinstance(pixel2, tuple):
                         r1, g1, b1 = pixel1[:3]
@@ -70,7 +70,7 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> str:
                     else:
                         r1 = g1 = b1 = 0
                         r2 = g2 = b2 = 0
-                        
+
                     # \033[38;2;R;G;Bm sets foreground (lower half block)
                     # \033[48;2;R;G;Bm sets background (upper half block)
                     # \u2584 is the lower half block character

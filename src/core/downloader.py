@@ -31,9 +31,10 @@ from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
 from core.quality import (
     check_quality_available,
     get_best_matching_quality,
+    normalize_quality,
     resolve_format_string,
 )
-from core.subtitles import normalize_subtitle_languages
+from core.subtitles import cleanup_leftover_subtitles, normalize_subtitle_languages
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
@@ -267,8 +268,8 @@ def download_video(
     result = DownloadResult(url=url)
     start_time = time.monotonic()
 
-    # Ensure output directory exists
-    output_path = Path(output_dir)
+    # Ensure output directory exists and is absolute
+    output_path = Path(output_dir).resolve()
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Setup progress tracker
@@ -285,8 +286,8 @@ def download_video(
         tracker.video_id = info.get("id", "")
         tracker.title = result.title
 
-        quality_str = str(quality).strip().lower()
-        if quality_str not in ("best", "qualitypreset.best") and not check_quality_available(info, quality_str):
+        quality_str = normalize_quality(quality)
+        if quality_str not in ("best", "bestvideo+bestaudio/best") and not check_quality_available(info, quality_str):
             best_match = get_best_matching_quality(info, quality_str)
             if best_match.lower() != quality_str:
                 logger.warning(
@@ -306,7 +307,7 @@ def download_video(
         progress_hooks.append(progress_hook)
 
     opts = build_ydl_opts(
-        output_dir=output_dir,
+        output_dir=output_path,
         quality=effective_quality,
         video_format=video_format,
         output_template=output_template,
@@ -353,6 +354,13 @@ def download_video(
                     result.file_size = final_path.stat().st_size
                     result.status = DownloadStatus.COMPLETED  # still usable
                     tracker.set_status(DownloadStatus.COMPLETED)
+
+                # Clean up subtitles if they were embedded
+                if embed_subs:
+                    try:
+                        cleanup_leftover_subtitles(final_path, result.title)
+                    except Exception as e:
+                        logger.debug("Failed to clean up leftover subtitles: %s", e)
             else:
                 result.status = DownloadStatus.COMPLETED
                 tracker.set_status(DownloadStatus.COMPLETED)
@@ -366,7 +374,7 @@ def download_video(
                 logger.debug("Failed to write download history: %s", e)
 
             # Clean up temp directory
-            safety = SafeDownloadManager(output_dir, video_id=video_id)
+            safety = SafeDownloadManager(output_path, video_id=video_id)
             safety.cleanup_temp()
             return result
 
@@ -386,7 +394,7 @@ def download_video(
                 break
         except KeyboardInterrupt:
             logger.warning("Download interrupted by user.")
-            safety = SafeDownloadManager(output_dir, video_id=video_id)
+            safety = SafeDownloadManager(output_path, video_id=video_id)
             safety.cleanup_temp()
             tracker.set_status(DownloadStatus.FAILED)
             raise

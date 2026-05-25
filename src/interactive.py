@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 import questionary
 from questionary import Style as QStyle
@@ -113,15 +114,19 @@ def _ask_bitrate() -> str:
 
 def _ask_output_dir() -> str:
     """Prompt for an output directory path."""
+    default_path = str(Path.home() / "Downloads")
     path = questionary.path(
         "Output directory:",
-        default="Downloads\\",
+        default=default_path,
         only_directories=True,
         style=CUSTOM_STYLE,
     ).ask()
     if path:
         path = path.strip().strip('"').strip("'")
-    return path or "Downloads\\"
+        candidate = Path(path)
+        if not candidate.is_absolute() and candidate.parts and candidate.parts[0] not in (".", ".."):
+            path = str(Path.home() / candidate)
+    return path or default_path
 
 
 def _ask_parallel() -> int:

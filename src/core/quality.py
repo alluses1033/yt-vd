@@ -7,6 +7,7 @@ inspects available video qualities, and provides best-match fallback.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from constants import (
@@ -21,7 +22,33 @@ logger = logging.getLogger(__name__)
 _KNOWN_HEIGHTS: tuple[int, ...] = (2160, 1440, 1080, 720, 480, 360, 240, 144)
 
 
-def resolve_format_string(quality: str) -> str:
+
+
+def normalize_quality(quality: Any) -> str:
+    """Normalize quality to a lowercase string value.
+
+    Handles Enums, Enum members, and stringified representations of Enums.
+    """
+    if hasattr(quality, "value"):
+        val = quality.value
+    else:
+        val = quality
+
+    val_str = str(val).strip().lower()
+
+    # If it is formatted like "<QualityPreset.BEST: 'best'>", extract the value
+    if ":" in val_str and (val_str.startswith("<") or val_str.endswith(">")):
+        match = re.search(r"'(.*?)'", val_str)
+        if match:
+            return match.group(1).strip().lower()
+        parts = val_str.split(":")
+        if len(parts) > 1:
+            return parts[-1].replace(">", "").strip(" '\"").lower()
+
+    return val_str
+
+
+def resolve_format_string(quality: Any) -> str:
     """Convert a quality preset or resolution string to a yt-dlp format string.
 
     Supports:
@@ -44,7 +71,7 @@ def resolve_format_string(quality: str) -> str:
         >>> resolve_format_string('720p')
         'bestvideo[height<=720]+bestaudio/bestvideo+bestaudio/best'
     """
-    normalized = quality.strip().lower()
+    normalized = normalize_quality(quality)
 
     # Check named presets first
     if normalized in QUALITY_FORMAT_MAP:
@@ -75,7 +102,7 @@ def resolve_format_string(quality: str) -> str:
     return QUALITY_FORMAT_MAP[QualityPreset.BEST]
 
 
-def check_quality_available(info_dict: dict[str, Any], quality: str) -> bool:
+def check_quality_available(info_dict: dict[str, Any], quality: Any) -> bool:
     """Check whether the requested quality is available in a video's format list.
 
     Args:
@@ -120,7 +147,7 @@ def get_available_qualities(info_dict: dict[str, Any]) -> list[str]:
 
 def get_best_matching_quality(
     info_dict: dict[str, Any],
-    requested: str,
+    requested: Any,
 ) -> str:
     """Find the closest available quality to the requested one.
 
@@ -158,7 +185,7 @@ def get_best_matching_quality(
     return available[-1]
 
 
-def _parse_height(quality: str) -> int | None:
+def _parse_height(quality: Any) -> int | None:
     """Extract the numeric height from a quality string.
 
     Args:
@@ -167,7 +194,7 @@ def _parse_height(quality: str) -> int | None:
     Returns:
         The integer height, or None if unparseable.
     """
-    normalized = quality.strip().lower()
+    normalized = normalize_quality(quality)
 
     # Preset name → height
     preset_to_height: dict[str, int] = {
@@ -187,3 +214,4 @@ def _parse_height(quality: str) -> int | None:
         return int(numeric_str)
     except ValueError:
         return None
+

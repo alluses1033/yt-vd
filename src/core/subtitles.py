@@ -252,3 +252,65 @@ def _language_name(code: str) -> str:
     # Handle codes like "en-US" → try "en"
     base = code.split("-")[0] if "-" in code and code not in _LANGUAGE_NAMES else code
     return _LANGUAGE_NAMES.get(base, code)
+
+
+def cleanup_leftover_subtitles(video_path: Path, title: str) -> None:
+    """Find and delete external subtitle files matching the video.
+
+    Checks the directory of `video_path` for files with subtitle extensions
+    that match the video's filename stem (ignoring trailing spaces, etc.).
+    """
+    import re
+
+    if not video_path:
+        return
+
+    parent_dir = video_path.parent
+    if not parent_dir.exists():
+        return
+
+    # Get normalized base name of the video file (lowercase, stripped)
+    video_stem = video_path.stem.strip().lower()
+
+    # We also check the title normalized
+    from core.utils import sanitize_filename
+    sanitized_title = sanitize_filename(title).strip().lower()
+
+    sub_exts = {".srt", ".vtt", ".ass", ".sbv", ".lrc"}
+
+    logger.debug("Cleaning up subtitles for %s in %s", video_path.name, parent_dir)
+
+    for item in parent_dir.iterdir():
+        if item.is_file() and item.suffix.lower() in sub_exts:
+            item_name = item.name.lower()
+
+            # Check if this subtitle belongs to our video.
+            # It should start with the video stem or sanitized title (ignoring spaces/punctuation differences)
+            match = False
+
+            # Direct startswith checks
+            if item_name.startswith(video_stem):
+                match = True
+            elif item_name.startswith(sanitized_title):
+                match = True
+
+            # If there's a space or dot, e.g. "video_title .en.srt" or "video_title.en.srt"
+            # let's do a normalized comparison by stripping spaces and punctuation
+            if not match:
+                norm_item = re.sub(r'[^a-z0-9]', '', item_name)
+                norm_video = re.sub(r'[^a-z0-9]', '', video_stem)
+                norm_title = re.sub(r'[^a-z0-9]', '', sanitized_title)
+
+                # Subtitle files contain the language code, so they will be longer than the video stem.
+                # We check if the normalized item starts with the normalized video stem/title.
+                if norm_video and norm_item.startswith(norm_video):
+                    match = True
+                elif norm_title and norm_item.startswith(norm_title):
+                    match = True
+
+            if match:
+                try:
+                    item.unlink()
+                    logger.info("Cleaned up residue subtitle file: %s", item.name)
+                except OSError as e:
+                    logger.warning("Failed to delete residue subtitle %s: %s", item.name, e)

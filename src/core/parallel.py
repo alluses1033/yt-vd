@@ -49,8 +49,9 @@ def download_batch(
     if not urls:
         return results
 
-    # Ensure output directory exists
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # Ensure output directory exists and is absolute
+    output_path = Path(output_dir).resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
 
     workers = min(max(1, parallel), len(urls))
     logger.info("Starting batch download of %d videos with %d workers", len(urls), workers)
@@ -60,7 +61,7 @@ def download_batch(
             executor.submit(
                 download_video,
                 url,
-                output_dir=output_dir,
+                output_dir=output_path,
                 quality=quality,
                 video_format=fmt,
                 verbose=verbose,
