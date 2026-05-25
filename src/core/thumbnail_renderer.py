@@ -54,7 +54,7 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> str:
         with Image.open(temp_file) as raw_img:
             rgb_img = raw_img.convert("RGB")
             # We need height * 2 because each char cell represents 2 vertical pixels
-            resized_img = rgb_img.resize((width, height * 2), Image.Resampling.BILINEAR)
+            resized_img = rgb_img.resize((width, height * 2), Image.Resampling.LANCZOS)
 
             lines = []
             for y in range(0, height * 2, 2):

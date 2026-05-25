@@ -624,7 +624,7 @@ def search(
             with console.status("[cyan]Rendering thumbnails...[/]"):
                 with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
                     futures = {
-                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 24, 8): entry
+                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 32, 12): entry
                         for entry in results
                         if entry.thumbnail_url
                     }
@@ -645,7 +645,7 @@ def search(
             expand=True,
         )
         table.add_column("#", style="dim", width=4, justify="right")
-        table.add_column("Thumbnail", width=24, justify="center")
+        table.add_column("Thumbnail", width=32, justify="center")
         table.add_column("Title", style="bold white", ratio=3)
         table.add_column("Channel", style="green", ratio=1)
         table.add_column("Duration", justify="center", width=10)
@@ -702,9 +702,10 @@ def search(
                     if selected.thumbnail_url and is_term:
                         from core.thumbnail_renderer import get_ansi_thumbnail
                         with console.status("[cyan]Loading preview...[/]"):
-                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 42, 14)
+                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 56, 18)
                         if large_ansi:
                             console.print(Panel(Text.from_ansi(large_ansi), title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
+                            console.print("[dim]Terminal thumbnails are low-resolution. Use title, channel, duration, and views to confirm your selection.[/]")
 
                     is_playlist = "[Playlist]" in selected.title or "playlist" in sel_url
 
