@@ -58,6 +58,7 @@ def build_ydl_opts(
     fragment_threads: int = DEFAULT_FRAGMENT_THREADS,
     use_temp_dir: bool = True,
     extra_opts: dict[str, Any] | None = None,
+    video_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a complete yt-dlp options dictionary.
 
@@ -102,7 +103,7 @@ def build_ydl_opts(
 
     # Paths
     if use_temp_dir:
-        safety = SafeDownloadManager(output_dir)
+        safety = SafeDownloadManager(output_dir, video_id=video_id)
         opts.update(safety.get_ydl_paths())
     else:
         opts["paths"] = {"home": str(output_dir)}
@@ -126,7 +127,7 @@ def build_ydl_opts(
         opts["subtitlesformat"] = "srt/best"
         postprocessors.append({
             "key": "FFmpegEmbedSubtitle",
-            "already_have_subtitle": True,
+            "already_have_subtitle": False,
         })
 
     if sponsorblock:
@@ -248,6 +249,13 @@ def download_video(
     progress_hook = kwargs.pop("progress_hook", None)
     use_temp_dir = kwargs.pop("use_temp_dir", True)
 
+    # Extract video ID from URL or fallback
+    match = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})", url)
+    video_id = match.group(1) if match else None
+    if not video_id:
+        import hashlib
+        video_id = hashlib.md5(url.encode()).hexdigest()[:11]
+
     if subtitle_langs is None and sub_lang:
         if isinstance(sub_lang, str):
             subtitle_langs = [sub_lang]
@@ -277,12 +285,13 @@ def download_video(
         tracker.video_id = info.get("id", "")
         tracker.title = result.title
 
-        if not check_quality_available(info, quality):
-            best_match = get_best_matching_quality(info, quality)
-            if best_match != quality:
+        quality_str = str(quality).strip().lower()
+        if quality_str not in ("best", "qualitypreset.best") and not check_quality_available(info, quality_str):
+            best_match = get_best_matching_quality(info, quality_str)
+            if best_match.lower() != quality_str:
                 logger.warning(
                     "Requested quality %r not available — using %r instead",
-                    quality,
+                    quality_str,
                     best_match,
                 )
             effective_quality = best_match
@@ -309,6 +318,7 @@ def download_video(
         progress_hooks=progress_hooks,
         use_temp_dir=use_temp_dir,
         extra_opts=extra_opts,
+        video_id=video_id,
     )
 
     # Download with retry
@@ -356,7 +366,7 @@ def download_video(
                 logger.debug("Failed to write download history: %s", e)
 
             # Clean up temp directory
-            safety = SafeDownloadManager(output_dir)
+            safety = SafeDownloadManager(output_dir, video_id=video_id)
             safety.cleanup_temp()
             return result
 
@@ -376,7 +386,7 @@ def download_video(
                 break
         except KeyboardInterrupt:
             logger.warning("Download interrupted by user.")
-            safety = SafeDownloadManager(output_dir)
+            safety = SafeDownloadManager(output_dir, video_id=video_id)
             safety.cleanup_temp()
             tracker.set_status(DownloadStatus.FAILED)
             raise

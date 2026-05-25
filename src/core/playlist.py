@@ -81,12 +81,16 @@ def download_playlist(
     )
 
     # Call parallel downloader
+    from core.utils import sanitize_filename
+    playlist_folder = sanitize_filename(info.title)
+    final_output_dir = Path(output_dir) / playlist_folder
+
     results = download_parallel(
         sliced_entries,
         quality=quality,
         fmt=fmt,
         workers=parallel,
-        output_dir=output_dir,
+        output_dir=final_output_dir,
         playlist_title=info.title,
         **kwargs,
     )
@@ -120,12 +124,16 @@ def download_channel(
         info.title,
     )
 
+    from core.utils import sanitize_filename
+    channel_folder = sanitize_filename(info.title)
+    final_output_dir = Path(output_dir) / channel_folder
+
     results = download_parallel(
         selected_entries,
         quality=quality,
         fmt=fmt,
         workers=parallel,
-        output_dir=output_dir,
+        output_dir=final_output_dir,
         playlist_title=info.title,
         **kwargs,
     )

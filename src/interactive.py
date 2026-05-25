@@ -115,11 +115,13 @@ def _ask_output_dir() -> str:
     """Prompt for an output directory path."""
     path = questionary.path(
         "Output directory:",
-        default=".",
+        default="Downloads\\",
         only_directories=True,
         style=CUSTOM_STYLE,
     ).ask()
-    return path or "."
+    if path:
+        path = path.strip().strip('"').strip("'")
+    return path or "Downloads\\"
 
 
 def _ask_parallel() -> int:
@@ -225,28 +227,67 @@ def _action_download_playlist() -> None:
     start = max(1, int(start_raw or 1))
     end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
 
+    subs, sub_lang = _ask_subtitles()
+    thumbnail = _ask_thumbnail()
+
     console.print()
     console.print(
         Panel(
             f"[bold]Playlist:[/] {url}\n"
             f"[bold]Quality:[/] {quality}  [bold]Format:[/] {fmt}\n"
-            f"[bold]Range:[/] {start}–{end or 'end'}  [bold]Workers:[/] {parallel}",
+            f"[bold]Range:[/] {start}–{end or 'end'}  [bold]Workers:[/] {parallel}\n"
+            f"[bold]Subtitles:[/] {sub_lang if subs else 'No'}  [bold]Thumbnail:[/] {'Yes' if thumbnail else 'No'}",
             title="[bold yellow]Playlist Settings[/]",
             border_style="yellow",
         )
     )
 
-    from core.playlist import download_playlist
+    from core.playlist import download_playlist, get_playlist_info
 
-    results = download_playlist(
-        url=url,
-        quality=quality,
-        fmt=fmt,
-        output_dir=output,
-        start=start,
-        end=end,
-        parallel=parallel,
-    )
+    info = None
+    with console.status("[cyan]Fetching playlist info...[/]"):
+        try:
+            info = get_playlist_info(url)
+        except Exception as e:
+            console.print(f"[red]Error fetching playlist info: {e}[/]")
+
+    titles = []
+    if info and info.entries:
+        start_idx = max(0, start - 1)
+        end_idx = end if end is not None else len(info.entries)
+        sliced_entries = info.entries[start_idx:end_idx]
+        titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+
+    from core.progress import MultiTerminalProgress
+
+    if titles:
+        with MultiTerminalProgress(console, titles) as progress_callback:
+            results = download_playlist(
+                url=url,
+                quality=quality,
+                fmt=fmt,
+                output_dir=output,
+                start=start,
+                end=end,
+                parallel=parallel,
+                subtitles=subs,
+                sub_lang=sub_lang,
+                embed_thumbnail=thumbnail,
+                on_progress=progress_callback,
+            )
+    else:
+        results = download_playlist(
+            url=url,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output,
+            start=start,
+            end=end,
+            parallel=parallel,
+            subtitles=subs,
+            sub_lang=sub_lang,
+            embed_thumbnail=thumbnail,
+        )
 
     _show_results_table(results)
 
@@ -400,20 +441,76 @@ def _action_search() -> None:
 
                     if is_playlist:
                         quality = _ask_quality()
+                        fmt = _ask_video_format()
                         output = _ask_output_dir()
+                        parallel = _ask_parallel()
 
-                        from core.playlist import download_playlist
-                        console.print(f"[cyan]Downloading playlist:[/] {selected.title}")
-                        results_dl = download_playlist(
-                            url=selected_url,
-                            quality=quality,
-                            output_dir=output,
-                        )
-                        console.print(f"\n[green]Finished downloading playlist ({len(results_dl)} items).[/]")
+                        start_raw = questionary.text(
+                            "Start index (default 1):", default="1", style=CUSTOM_STYLE
+                        ).ask()
+                        end_raw = questionary.text(
+                            "End index (leave blank for all):", default="", style=CUSTOM_STYLE
+                        ).ask()
+
+                        start = max(1, int(start_raw or 1))
+                        end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
+
+                        subs, sub_lang = _ask_subtitles()
+                        thumbnail = _ask_thumbnail()
+
+                        # Fetch playlist info first
+                        from core.playlist import download_playlist, get_playlist_info
+                        info = None
+                        with console.status("[cyan]Fetching playlist info...[/]"):
+                            try:
+                                info = get_playlist_info(selected_url)
+                            except Exception as e:
+                                console.print(f"[red]Error fetching playlist info: {e}[/]")
+
+                        titles = []
+                        if info and info.entries:
+                            start_idx = max(0, start - 1)
+                            end_idx = end if end is not None else len(info.entries)
+                            sliced_entries = info.entries[start_idx:end_idx]
+                            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+
+                        from core.progress import MultiTerminalProgress
+
+                        if titles:
+                            with MultiTerminalProgress(console, titles) as progress_callback:
+                                results_dl = download_playlist(
+                                    url=selected_url,
+                                    quality=quality,
+                                    fmt=fmt,
+                                    output_dir=output,
+                                    start=start,
+                                    end=end,
+                                    parallel=parallel,
+                                    subtitles=subs,
+                                    sub_lang=sub_lang,
+                                    embed_thumbnail=thumbnail,
+                                    on_progress=progress_callback,
+                                )
+                        else:
+                            results_dl = download_playlist(
+                                url=selected_url,
+                                quality=quality,
+                                fmt=fmt,
+                                output_dir=output,
+                                start=start,
+                                end=end,
+                                parallel=parallel,
+                                subtitles=subs,
+                                sub_lang=sub_lang,
+                                embed_thumbnail=thumbnail,
+                            )
+                        _show_results_table(results_dl)
                     else:
                         quality = _ask_quality()
                         fmt = _ask_video_format()
                         output = _ask_output_dir()
+                        subs, sub_lang = _ask_subtitles()
+                        thumbnail = _ask_thumbnail()
 
                         from core.downloader import download_video
                         from core.progress import TerminalProgress
@@ -424,6 +521,9 @@ def _action_search() -> None:
                                 quality=quality,
                                 fmt=fmt,
                                 output_dir=output,
+                                subtitles=subs,
+                                sub_lang=sub_lang,
+                                embed_thumbnail=thumbnail,
                                 progress_callback=progress_callback,
                             )
                         _show_result(result)

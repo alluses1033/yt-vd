@@ -48,9 +48,12 @@ class SafeDownloadManager:
 
     __slots__ = ("_output_dir", "_temp_dir")
 
-    def __init__(self, output_dir: str | Path) -> None:
+    def __init__(self, output_dir: str | Path, video_id: str | None = None) -> None:
         self._output_dir = Path(output_dir)
-        self._temp_dir = self._output_dir / TEMP_DIR_NAME
+        if video_id:
+            self._temp_dir = self._output_dir / TEMP_DIR_NAME / f"vid_{video_id}"
+        else:
+            self._temp_dir = self._output_dir / TEMP_DIR_NAME
 
     @property
     def output_dir(self) -> Path:
@@ -230,6 +233,15 @@ def cleanup_temp(temp_dir: str | Path) -> None:
         try:
             temp_path.rmdir()
             logger.debug("Removed temp directory: %s", temp_path)
+
+            # Try to remove parent .yt-vd-temp if it's empty
+            parent = temp_path.parent
+            if parent.name == TEMP_DIR_NAME:
+                try:
+                    parent.rmdir()
+                    logger.debug("Removed parent temp directory: %s", parent)
+                except OSError:
+                    pass
         except OSError:
             pass  # Not empty or in use — that's fine
 

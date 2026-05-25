@@ -76,8 +76,16 @@ def extract_audio(
     if progress_callback:
         tracker.add_callback(progress_callback)
 
+    # Extract video ID from URL or fallback
+    import re
+    match = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})", url)
+    video_id = match.group(1) if match else None
+    if not video_id:
+        import hashlib
+        video_id = hashlib.md5(url.encode()).hexdigest()[:11]
+
     hook = make_progress_hook(tracker)
-    safety = SafeDownloadManager(output_dir)
+    safety = SafeDownloadManager(output_dir, video_id=video_id)
 
     # Resolve bitrate to numeric quality (for yt-dlp)
     quality_num = AUDIO_BITRATE_MAP.get(bitrate, 320)
