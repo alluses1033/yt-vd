@@ -587,6 +587,7 @@ def search(
 
     current_page = 1
     while True:
+        console.clear()
         console.print(f"\n[cyan]Searching for:[/] [bold]{query}[/] (Page {current_page}) ...\n")
         results = search_youtube(query=query, max_results=results_count, page=current_page)
 
@@ -611,6 +612,31 @@ def search(
             else:
                 break
 
+        # Check if console is a terminal
+        is_term = bool(getattr(console, "is_terminal", False))
+
+        ansi_thumbnails = {}
+        if is_term and results:
+            from concurrent.futures import ThreadPoolExecutor
+
+            from core.thumbnail_renderer import get_ansi_thumbnail
+
+            with console.status("[cyan]Rendering thumbnails...[/]"):
+                with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
+                    futures = {
+                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 16, 6): entry
+                        for entry in results
+                        if entry.thumbnail_url
+                    }
+                    for future in futures:
+                        entry = futures[future]
+                        try:
+                            ansi_thumbnails[entry.url] = future.result()
+                        except Exception:
+                            ansi_thumbnails[entry.url] = ""
+
+        from rich.text import Text
+
         table = Table(
             title=f"Search Results (Page {current_page})",
             show_header=True,
@@ -619,11 +645,12 @@ def search(
             expand=True,
         )
         table.add_column("#", style="dim", width=4, justify="right")
+        table.add_column("Thumbnail", width=18, justify="center")
         table.add_column("Title", style="bold white", ratio=3)
         table.add_column("Channel", style="green", ratio=1)
         table.add_column("Duration", justify="center", width=10)
         table.add_column("Views", justify="right", width=12)
-        table.add_column("Thumbnail & URL", style="dim cyan", ratio=2)
+        table.add_column("Link", style="dim cyan", ratio=2)
 
         for i, entry in enumerate(results, 1):
             dur = entry.duration
@@ -632,17 +659,17 @@ def search(
             views_str = f"{views:,}" if views else "N/A"
             entry_url = entry.url or "N/A"
 
-            thumb_info = ""
-            if entry.thumbnail_url:
-                thumb_info = f"[underline]Thumbnail:[/] {entry.thumbnail_url}\n"
+            thumb_ansi = ansi_thumbnails.get(entry_url, "")
+            thumb_render = Text.from_ansi(thumb_ansi) if thumb_ansi else Text("No Image", style="dim")
 
             table.add_row(
                 str(i),
+                thumb_render,
                 entry.title or "Unknown",
                 entry.uploader or "Unknown",
                 dur_str,
                 views_str,
-                f"{thumb_info}[underline]Link:[/] {entry_url}",
+                entry_url,
             )
 
         console.print(table)
@@ -670,28 +697,175 @@ def search(
                 if 0 <= idx < len(results):
                     selected = results[idx]
                     sel_url = selected.url
-                    console.print(
-                        f"\n[cyan]Selected:[/] [bold]{selected.title}[/]\n"
-                    )
+                    console.print(f"\n[cyan]Selected:[/] [bold]{selected.title}[/]\n")
 
-                    from core.downloader import download_video
-                    from core.progress import TerminalProgress
+                    if selected.thumbnail_url and is_term:
+                        from core.thumbnail_renderer import get_ansi_thumbnail
+                        with console.status("[cyan]Loading preview...[/]"):
+                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 36, 12)
+                        if large_ansi:
+                            console.print(Panel(Text.from_ansi(large_ansi), title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
 
                     is_playlist = "[Playlist]" in selected.title or "playlist" in sel_url
 
                     if is_playlist:
-                        from core.playlist import download_playlist
-                        console.print(f"[cyan]Downloading playlist:[/] {selected.title}")
-                        # We'll hook progress bar for playlist downloads in Phase 4
-                        results_dl = download_playlist(url=sel_url, output_dir=".")
-                        console.print(f"\n[green]Finished downloading playlist ({len(results_dl)} items).[/]")
+                        quality = questionary.select(
+                            "Quality:",
+                            choices=[
+                                questionary.Choice("Best (no limit)", value="best"),
+                                questionary.Choice("High (1080p)", value="high"),
+                                questionary.Choice("Medium (720p)", value="medium"),
+                                questionary.Choice("Better (480p)", value="better"),
+                                questionary.Choice("Low (360p)", value="low"),
+                                questionary.Choice("Lowest (240p)", value="lowest"),
+                            ],
+                            default="best",
+                        ).ask() or "best"
+
+                        fmt = questionary.select(
+                            "Format:",
+                            choices=[
+                                questionary.Choice("MP4  (recommended)", value="mp4"),
+                                questionary.Choice("MKV  (more codec support)", value="mkv"),
+                                questionary.Choice("WEBM (web optimised)", value="webm"),
+                            ],
+                            default="mp4",
+                        ).ask() or "mp4"
+
+                        output = questionary.path(
+                            "Output directory:",
+                            default="Downloads\\",
+                            only_directories=True,
+                        ).ask()
+                        if output:
+                            output = output.strip().strip('"').strip("'")
+                        output = output or "Downloads\\"
+
+                        parallel = questionary.text(
+                            "Parallel workers (default 8):",
+                            default="8",
+                        ).ask()
+                        try:
+                            parallel_num = max(1, int(parallel or 8))
+                        except ValueError:
+                            parallel_num = 8
+
+                        start_raw = questionary.text(
+                            "Start index (default 1):", default="1"
+                        ).ask()
+                        end_raw = questionary.text(
+                            "End index (leave blank for all):", default=""
+                        ).ask()
+
+                        start = max(1, int(start_raw or 1))
+                        end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
+
+                        want_subs = questionary.confirm("Download subtitles?", default=False).ask()
+                        sub_lang = "en"
+                        if want_subs:
+                            sub_lang = questionary.text("Subtitle language code (e.g. en, ja, es):", default="en").ask() or "en"
+
+                        thumbnail = questionary.confirm("Embed thumbnail?", default=False).ask()
+
+                        # Fetch playlist info first
+                        from core.playlist import download_playlist, get_playlist_info
+                        info = None
+                        with console.status("[cyan]Fetching playlist info...[/]"):
+                            try:
+                                info = get_playlist_info(sel_url)
+                            except Exception as e:
+                                console.print(f"[red]Error fetching playlist info: {e}[/]")
+
+                        titles = []
+                        if info and info.entries:
+                            start_idx = max(0, start - 1)
+                            end_idx = end if end is not None else len(info.entries)
+                            sliced_entries = info.entries[start_idx:end_idx]
+                            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+
+                        from core.progress import MultiTerminalProgress
+
+                        if titles:
+                            with MultiTerminalProgress(console, titles) as progress_callback:
+                                results_dl = download_playlist(
+                                    url=sel_url,
+                                    quality=quality,
+                                    fmt=fmt,
+                                    output_dir=output,
+                                    start=start,
+                                    end=end,
+                                    parallel=parallel_num,
+                                    subtitles=want_subs,
+                                    sub_lang=sub_lang,
+                                    embed_thumbnail=thumbnail,
+                                    on_progress=progress_callback,
+                                )
+                        else:
+                            results_dl = download_playlist(
+                                url=sel_url,
+                                quality=quality,
+                                fmt=fmt,
+                                output_dir=output,
+                                start=start,
+                                end=end,
+                                parallel=parallel_num,
+                                subtitles=want_subs,
+                                sub_lang=sub_lang,
+                                embed_thumbnail=thumbnail,
+                            )
+                        _show_summary_table(results_dl)
                     else:
+                        quality = questionary.select(
+                            "Quality:",
+                            choices=[
+                                questionary.Choice("Best (no limit)", value="best"),
+                                questionary.Choice("High (1080p)", value="high"),
+                                questionary.Choice("Medium (720p)", value="medium"),
+                                questionary.Choice("Better (480p)", value="better"),
+                                questionary.Choice("Low (360p)", value="low"),
+                                questionary.Choice("Lowest (240p)", value="lowest"),
+                            ],
+                            default="best",
+                        ).ask() or "best"
+
+                        fmt = questionary.select(
+                            "Format:",
+                            choices=[
+                                questionary.Choice("MP4  (recommended)", value="mp4"),
+                                questionary.Choice("MKV  (more codec support)", value="mkv"),
+                                questionary.Choice("WEBM (web optimised)", value="webm"),
+                            ],
+                            default="mp4",
+                        ).ask() or "mp4"
+
+                        output = questionary.path(
+                            "Output directory:",
+                            default="Downloads\\",
+                            only_directories=True,
+                        ).ask()
+                        if output:
+                            output = output.strip().strip('"').strip("'")
+                        output = output or "Downloads\\"
+
+                        want_subs = questionary.confirm("Download subtitles?", default=False).ask()
+                        sub_lang = "en"
+                        if want_subs:
+                            sub_lang = questionary.text("Subtitle language code (e.g. en, ja, es):", default="en").ask() or "en"
+
+                        thumbnail = questionary.confirm("Embed thumbnail?", default=False).ask()
+
+                        from core.downloader import download_video
+                        from core.progress import TerminalProgress
+
                         with TerminalProgress(console, "Download") as progress_callback:
                             result = download_video(
                                 url=sel_url,
-                                quality="best",
-                                fmt="mp4",
-                                output_dir=".",
+                                quality=quality,
+                                fmt=fmt,
+                                output_dir=output,
+                                subtitles=want_subs,
+                                sub_lang=sub_lang,
+                                embed_thumbnail=thumbnail,
                                 progress_callback=progress_callback,
                             )
                         _show_result_panel(result)

@@ -349,6 +349,7 @@ def _action_search() -> None:
 
     current_page = 1
     while True:
+        console.clear()
         console.print(f"\n[cyan]Searching for:[/] [bold]{query.strip()}[/] (Page {current_page}) ...\n")
         results = search_youtube(query=query.strip(), max_results=count, page=current_page)
 
@@ -374,7 +375,31 @@ def _action_search() -> None:
             else:
                 break
 
+        # Check if console is a terminal
+        is_term = bool(getattr(console, "is_terminal", False))
+
+        ansi_thumbnails = {}
+        if is_term and results:
+            from concurrent.futures import ThreadPoolExecutor
+
+            from core.thumbnail_renderer import get_ansi_thumbnail
+
+            with console.status("[cyan]Rendering thumbnails...[/]"):
+                with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
+                    futures = {
+                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 16, 6): entry
+                        for entry in results
+                        if entry.thumbnail_url
+                    }
+                    for future in futures:
+                        entry = futures[future]
+                        try:
+                            ansi_thumbnails[entry.url] = future.result()
+                        except Exception:
+                            ansi_thumbnails[entry.url] = ""
+
         from rich.table import Table
+        from rich.text import Text
 
         table = Table(
             title=f"Search Results (Page {current_page})",
@@ -384,11 +409,12 @@ def _action_search() -> None:
             expand=True,
         )
         table.add_column("#", style="dim", width=4, justify="right")
+        table.add_column("Thumbnail", width=18, justify="center")
         table.add_column("Title", style="bold white", ratio=3)
         table.add_column("Channel", style="green", ratio=1)
         table.add_column("Duration", justify="center", width=10)
         table.add_column("Views", justify="right", width=12)
-        table.add_column("Thumbnail & URL", style="dim cyan", ratio=2)
+        table.add_column("Link", style="dim cyan", ratio=2)
 
         for i, entry in enumerate(results, 1):
             dur = entry.duration
@@ -399,17 +425,17 @@ def _action_search() -> None:
             views_str = f"{views:,}" if views else "N/A"
             entry_url = entry.url or "N/A"
 
-            thumb_info = ""
-            if entry.thumbnail_url:
-                thumb_info = f"[underline]Thumbnail:[/] {entry.thumbnail_url}\n"
+            thumb_ansi = ansi_thumbnails.get(entry_url, "")
+            thumb_render = Text.from_ansi(thumb_ansi) if thumb_ansi else Text("No Image", style="dim")
 
             table.add_row(
                 str(i),
+                thumb_render,
                 entry.title or "Unknown",
                 entry.uploader or "Unknown",
                 dur_str,
                 views_str,
-                f"{thumb_info}[underline]Link:[/] {entry_url}",
+                entry_url,
             )
 
         console.print(table)
@@ -436,6 +462,13 @@ def _action_search() -> None:
                     selected = results[idx]
                     selected_url = selected.url
                     console.print(f"\n[cyan]Selected:[/] [bold]{selected.title}[/]")
+
+                    if selected.thumbnail_url and is_term:
+                        from core.thumbnail_renderer import get_ansi_thumbnail
+                        with console.status("[cyan]Loading preview...[/]"):
+                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 36, 12)
+                        if large_ansi:
+                            console.print(Panel(Text.from_ansi(large_ansi), title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
 
                     is_playlist = "[Playlist]" in selected.title or "playlist" in selected_url
 
