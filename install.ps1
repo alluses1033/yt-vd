@@ -6,7 +6,6 @@ $ProgressPreference = "Continue"
 $Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $Bin = Join-Path $InstallDir "yt-vd.exe"
-$GuiBin = Join-Path $InstallDir "yt-vd-gui.exe"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
 function Format-Bytes {
@@ -137,10 +136,8 @@ $Release = Invoke-RestMethod -Uri $ApiUrl -Headers $Headers
 Write-Host "Found $($Release.tag_name)." -ForegroundColor Green
 
 $CliAsset = Get-ReleaseAsset -Release $Release -Name "yt-vd.exe"
-$GuiAsset = Get-ReleaseAsset -Release $Release -Name "yt-vd-gui.exe"
 
 Download-Asset -Asset $CliAsset -OutFile $Bin
-Download-Asset -Asset $GuiAsset -OutFile $GuiBin
 
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($UserPath -split ";") -notcontains $InstallDir) {
@@ -157,4 +154,3 @@ Write-Host ""
 Write-Host "yt-vd installed successfully." -ForegroundColor Green
 Write-Host "Open a new PowerShell window, then run:"
 Write-Host "  yt-vd --help"
-Write-Host "  yt-vd gui"

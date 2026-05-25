@@ -32,8 +32,7 @@ download() {
 }
 
 download "${base_url}/yt-vd" "${install_dir}/yt-vd"
-download "${base_url}/yt-vd-gui" "${install_dir}/yt-vd-gui"
-chmod +x "${install_dir}/yt-vd" "${install_dir}/yt-vd-gui"
+chmod +x "${install_dir}/yt-vd"
 
 case ":$PATH:" in
     *":${install_dir}:"*) ;;
@@ -51,4 +50,3 @@ fi
 printf '\n%s\n' "yt-vd installed successfully."
 printf '%s\n' "Run:"
 printf '%s\n' "  yt-vd --help"
-printf '%s\n' "  yt-vd gui"
