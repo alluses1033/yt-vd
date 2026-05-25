@@ -121,6 +121,17 @@ function Download-Asset {
         throw "Downloaded $Name but the size did not match. Expected $(Format-Bytes $ExpectedSize), got $(Format-Bytes $ActualSize)."
     }
 
+    if (Test-Path -LiteralPath $OutFile) {
+        try {
+            Remove-Item -LiteralPath $OutFile -Force -ErrorAction Stop
+        } catch {
+            Write-Host "Warning: Target binary $OutFile is locked. Re-attempting process termination..." -ForegroundColor Yellow
+            Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 1
+            Remove-Item -LiteralPath $OutFile -Force
+        }
+    }
+
     Move-Item -LiteralPath $TempFile -Destination $OutFile -Force
     Write-Host "Saved $Name to $OutFile" -ForegroundColor Green
 }
@@ -128,16 +139,135 @@ function Download-Asset {
 Write-Host "Installing yt-vd..." -ForegroundColor Cyan
 Write-Host "Repository: https://github.com/$Repo"
 
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+# Retrieve local version before we overwrite it
+$LocalVersion = $null
+if (Test-Path -LiteralPath $Bin) {
+    try {
+        $VersionOutput = & $Bin --version 2>&1
+        if ($VersionOutput -match "version\s+([v\d\.\-]+)") {
+            $LocalVersion = $Matches[1]
+        }
+    } catch {
+        # ignore
+    }
+}
 
 Write-Host "Checking latest release..." -ForegroundColor Cyan
 $Headers = @{ "User-Agent" = "yt-vd-installer" }
 $Release = Invoke-RestMethod -Uri $ApiUrl -Headers $Headers
-Write-Host "Found $($Release.tag_name)." -ForegroundColor Green
+$RemoteVersion = $Release.tag_name
+Write-Host "Found remote version: $RemoteVersion" -ForegroundColor Green
+
+if ($LocalVersion) {
+    Write-Host "Currently installed local version: $LocalVersion" -ForegroundColor Green
+    if ($LocalVersion -eq $RemoteVersion) {
+        Write-Host "yt-vd is already at the latest version ($LocalVersion). Reinstalling/overwriting..." -ForegroundColor Yellow
+    } else {
+        Write-Host "Upgrading: $LocalVersion -> $RemoteVersion" -ForegroundColor Cyan
+    }
+} else {
+    Write-Host "Installing version $RemoteVersion..." -ForegroundColor Green
+}
+
+# Stop any running processes to prevent file locking
+$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+if ($RunningProcesses) {
+    Write-Host "Stopping running yt-vd process(es) to allow overwrite..." -ForegroundColor Yellow
+    foreach ($proc in $RunningProcesses) {
+        try {
+            Stop-Process -Id $proc.Id -Force
+        } catch {}
+    }
+    Start-Sleep -Seconds 1
+}
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 $CliAsset = Get-ReleaseAsset -Release $Release -Name "yt-vd.exe"
 
 Download-Asset -Asset $CliAsset -OutFile $Bin
+
+# Generate a local copy of the uninstaller script in the installation directory
+$UninstallScriptPath = Join-Path $InstallDir "uninstall.ps1"
+$UninstallScriptContent = @'
+# Error handling and preference setup
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "Continue"
+
+$Repo = "alluses1033/yt-vd"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
+$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
+
+Write-Host "=========================================" -ForegroundColor Cyan
+Write-Host "           Uninstalling yt-vd            " -ForegroundColor Cyan
+Write-Host "=========================================" -ForegroundColor Cyan
+
+# 1. Kill any running processes of yt-vd or its gui
+$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+if ($RunningProcesses) {
+    Write-Host "Stopping running yt-vd processes..." -ForegroundColor Yellow
+    foreach ($proc in $RunningProcesses) {
+        try {
+            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+            Write-Host "Stopped process: $($proc.ProcessName) (PID: $($proc.Id))" -ForegroundColor Green
+        } catch {
+            Write-Host "Warning: Failed to stop process $($proc.ProcessName): $_" -ForegroundColor Yellow
+        }
+    }
+    Start-Sleep -Seconds 1
+}
+
+# 2. Clean up AppData Local folders (config, history, database) to leave zero residue
+if (Test-Path -LiteralPath $UserAppDataDir) {
+    Write-Host "Removing configuration and history database at $UserAppDataDir..." -ForegroundColor Cyan
+    try {
+        Remove-Item -LiteralPath $UserAppDataDir -Recurse -Force -ErrorAction Stop
+        Write-Host "Successfully deleted config and database directory." -ForegroundColor Green
+    } catch {
+        Write-Host "Warning: Failed to remove some config files: $_" -ForegroundColor Yellow
+    }
+}
+
+# 3. Remove binary installation folder
+if (Test-Path -LiteralPath $InstallDir) {
+    Write-Host "Removing binary files at $InstallDir..." -ForegroundColor Cyan
+    try {
+        Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction Stop
+        Write-Host "Successfully deleted installation directory." -ForegroundColor Green
+    } catch {
+        Write-Host "Warning: Failed to remove installation directory completely: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Installation directory not found: $InstallDir" -ForegroundColor Yellow
+}
+
+# 4. Remove installation path from User PATH variable
+Write-Host "Cleaning up PATH environment variable..." -ForegroundColor Cyan
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($UserPath) {
+    $Paths = $UserPath -split ";"
+    $CleanPaths = $Paths | Where-Object { $_ -ne $InstallDir -and $_ -ne "$InstallDir\" -and [string]::IsNullOrWhiteSpace($_) -eq $false }
+    $NewUserPath = $CleanPaths -join ";"
+    
+    if ($UserPath -ne $NewUserPath) {
+        try {
+            [Environment]::SetEnvironmentVariable("Path", $NewUserPath, "User")
+            Write-Host "Removed $InstallDir from user PATH." -ForegroundColor Green
+        } catch {
+            Write-Host "Warning: Failed to update PATH environment variable: $_" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "Installation directory was not in User PATH." -ForegroundColor Yellow
+    }
+}
+
+Write-Host "=========================================" -ForegroundColor Green
+Write-Host " yt-vd has been successfully uninstalled. " -ForegroundColor Green
+Write-Host "=========================================" -ForegroundColor Green
+'@
+
+$UninstallScriptContent | Out-File -FilePath $UninstallScriptPath -Encoding utf8 -Force
+Write-Host "Created uninstaller at $UninstallScriptPath" -ForegroundColor Green
 
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($UserPath -split ";") -notcontains $InstallDir) {
