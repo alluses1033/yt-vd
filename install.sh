@@ -15,6 +15,11 @@ fi
 printf '%s\n' "Installing yt-vd..."
 mkdir -p "$install_dir"
 
+if [ -f "$install_dir/yt-vd" ]; then
+    printf '%s\n' "Removing existing yt-vd binary to ensure clean update..."
+    rm -f "$install_dir/yt-vd"
+fi
+
 download() {
     url="$1"
     out="$2"

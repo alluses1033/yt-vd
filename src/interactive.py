@@ -392,7 +392,7 @@ def _action_search() -> None:
             with console.status("[cyan]Rendering thumbnails...[/]"):
                 with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
                     futures = {
-                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 16, 6): entry
+                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 24, 8): entry
                         for entry in results
                         if entry.thumbnail_url
                     }
@@ -414,7 +414,7 @@ def _action_search() -> None:
             expand=True,
         )
         table.add_column("#", style="dim", width=4, justify="right")
-        table.add_column("Thumbnail", width=18, justify="center")
+        table.add_column("Thumbnail", width=24, justify="center")
         table.add_column("Title", style="bold white", ratio=3)
         table.add_column("Channel", style="green", ratio=1)
         table.add_column("Duration", justify="center", width=10)
@@ -471,7 +471,7 @@ def _action_search() -> None:
                     if selected.thumbnail_url and is_term:
                         from core.thumbnail_renderer import get_ansi_thumbnail
                         with console.status("[cyan]Loading preview...[/]"):
-                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 36, 12)
+                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 42, 14)
                         if large_ansi:
                             console.print(Panel(Text.from_ansi(large_ansi), title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
 
