@@ -6,7 +6,7 @@ $ProgressPreference = "Continue"
 $Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $Bin = Join-Path $InstallDir "yt-vd.exe"
-$ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
+$ApiUrl = "https://api.github.com/repos/$Repo/releases/tags/latest"
 
 function Format-Bytes {
     param([long]$Bytes)
