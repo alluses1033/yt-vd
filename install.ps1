@@ -6,7 +6,7 @@ $ProgressPreference = "Continue"
 $Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $Bin = Join-Path $InstallDir "yt-vd.exe"
-$ApiUrl = "https://api.github.com/repos/$Repo/releases/tags/latest"
+$ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
 function Format-Bytes {
     param([long]$Bytes)
@@ -126,7 +126,7 @@ function Download-Asset {
             Remove-Item -LiteralPath $OutFile -Force -ErrorAction Stop
         } catch {
             Write-Host "Warning: Target binary $OutFile is locked. Re-attempting process termination..." -ForegroundColor Yellow
-            Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue | Stop-Process -Force
+            Get-Process -Name "yt-vd" -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Seconds 1
             Remove-Item -LiteralPath $OutFile -Force
         }
@@ -160,17 +160,23 @@ Write-Host "Found remote version: $RemoteVersion" -ForegroundColor Green
 
 if ($LocalVersion) {
     Write-Host "Currently installed local version: $LocalVersion" -ForegroundColor Green
-    if ($LocalVersion -eq $RemoteVersion) {
-        Write-Host "yt-vd is already at the latest version ($LocalVersion). Reinstalling/overwriting..." -ForegroundColor Yellow
+    if ($RemoteVersion -eq "latest") {
+        Write-Host "Installing the latest release. Local version $LocalVersion will be updated if needed." -ForegroundColor Yellow
+    } elseif ($LocalVersion -eq $RemoteVersion) {
+        Write-Host "yt-vd is already at the latest version ($LocalVersion). Reinstalling to ensure a clean installation..." -ForegroundColor Yellow
     } else {
         Write-Host "Upgrading: $LocalVersion -> $RemoteVersion" -ForegroundColor Cyan
     }
 } else {
-    Write-Host "Installing version $RemoteVersion..." -ForegroundColor Green
+    if ($RemoteVersion -eq "latest") {
+        Write-Host "Installing the latest release..." -ForegroundColor Green
+    } else {
+        Write-Host "Installing version $RemoteVersion..." -ForegroundColor Green
+    }
 }
 
 # Stop any running processes to prevent file locking
-$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+$RunningProcesses = Get-Process -Name "yt-vd" -ErrorAction SilentlyContinue
 if ($RunningProcesses) {
     Write-Host "Stopping running yt-vd process(es) to allow overwrite..." -ForegroundColor Yellow
     foreach ($proc in $RunningProcesses) {
@@ -202,8 +208,8 @@ Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "           Uninstalling yt-vd            " -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
-# 1. Kill any running processes of yt-vd or its gui
-$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+# 1. Kill any running yt-vd processes
+$RunningProcesses = Get-Process -Name "yt-vd" -ErrorAction SilentlyContinue
 if ($RunningProcesses) {
     Write-Host "Stopping running yt-vd processes..." -ForegroundColor Yellow
     foreach ($proc in $RunningProcesses) {
