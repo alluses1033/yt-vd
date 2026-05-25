@@ -46,9 +46,6 @@ def get_playlist_info(url: str) -> PlaylistInfo | None:
         raise e
 
 
-# Expose fetch_playlist_info as an alias for get_playlist_info (used by GUI)
-fetch_playlist_info = get_playlist_info
-
 
 def download_playlist(
     url: str,

@@ -124,6 +124,111 @@ class TerminalProgress:
         )
 
 
+class MultiTerminalProgress:
+    """Rich terminal progress renderer for parallel downloads in a playlist."""
+
+    def __init__(self, console: Any, titles: list[str]) -> None:
+        self.console = console
+        self.titles = titles
+        self.enabled = bool(getattr(console, "is_terminal", False))
+        self._progress: Any | None = None
+        self._task_ids: list[Any] = []
+
+    def __enter__(self) -> Callable[[int, ProgressInfo], None]:
+        if not self.enabled:
+            return self.update
+
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+            TimeElapsedColumn,
+        )
+
+        self._progress = Progress(
+            SpinnerColumn(style="yellow"),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=None),
+            TextColumn("{task.fields[percent]}"),
+            TextColumn("{task.fields[size]}"),
+            TextColumn("{task.fields[speed]}"),
+            TextColumn("ETA {task.fields[eta]}"),
+            TimeElapsedColumn(),
+            console=self.console,
+            transient=False,
+            expand=True,
+        )
+        self._progress.start()
+
+        # Pre-populate tasks for each entry
+        for i, title in enumerate(self.titles):
+            truncated_title = _truncate(title or f"Video {i+1}", 30)
+            task_id = self._progress.add_task(
+                f"[yellow]Queued[/]: {truncated_title}",
+                total=None,
+                percent="--",
+                size="queued",
+                speed="-- B/s",
+                eta="--:--",
+            )
+            self._task_ids.append(task_id)
+
+        return self.update
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        if self._progress is not None:
+            self._progress.stop()
+
+    def update(self, idx: int, info: ProgressInfo) -> None:
+        if not self.enabled or self._progress is None or idx >= len(self._task_ids):
+            return
+
+        task_id = self._task_ids[idx]
+        title = _truncate(info.title or self.titles[idx] or f"Video {idx+1}", 30)
+        description = f"{_status_label(info.status)}: {title}"
+
+        total: float | None
+        completed: float
+        if info.status == DownloadStatus.COMPLETED:
+            total = info.total_bytes or 100.0
+            completed = total
+            percent = "100.0%"
+        elif info.total_bytes > 0:
+            total = float(info.total_bytes)
+            completed = float(info.downloaded_bytes)
+            percent = f"{info.percent:5.1f}%"
+        elif info.percent > 0:
+            total = 100.0
+            completed = min(info.percent, 100.0)
+            percent = f"{info.percent:5.1f}%"
+        else:
+            total = None
+            completed = 0.0
+            percent = "--"
+
+        if info.fragment_count:
+            size = f"frag {info.fragment_index}/{info.fragment_count}"
+        else:
+            size = info.size_str
+
+        self._progress.update(
+            task_id,
+            description=description,
+            completed=completed,
+            total=total,
+            percent=percent,
+            size=size,
+            speed=info.speed_str,
+            eta=info.eta_str,
+        )
+
+
 class ProgressTracker:
     """Thread-safe progress tracker for a single download.
 

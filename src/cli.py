@@ -323,20 +323,31 @@ def playlist(
     except Exception:
         pass  # Non-fatal; proceed with download
 
-    results = download_playlist(
-        url=url,
-        quality=quality,
-        fmt=fmt,
-        output_dir=output,
-        start=start,
-        end=end,
-        parallel=parallel,
-        subtitles=subtitles,
-        sub_lang=sub_lang,
-        embed_thumbnail=thumbnail,
-        sponsorblock=sponsorblock,
-        verbose=verbose,
-    )
+    from core.progress import MultiTerminalProgress
+
+    titles = []
+    if info and info.entries:
+        start_idx = max(0, start - 1)
+        end_idx = end if end is not None else len(info.entries)
+        sliced_entries = info.entries[start_idx:end_idx]
+        titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+
+    with MultiTerminalProgress(console, titles) as progress_callback:
+        results = download_playlist(
+            url=url,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output,
+            start=start,
+            end=end,
+            parallel=parallel,
+            subtitles=subtitles,
+            sub_lang=sub_lang,
+            embed_thumbnail=thumbnail,
+            sponsorblock=sponsorblock,
+            verbose=verbose,
+            on_progress=progress_callback,
+        )
 
     _show_summary_table(results)
 
@@ -448,17 +459,29 @@ def channel(
         )
     )
 
-    from core.playlist import download_channel
+    from core.playlist import download_channel, get_playlist_info
+    from core.progress import MultiTerminalProgress
 
-    results = download_channel(
-        url=url,
-        last_n=last,
-        quality=quality,
-        fmt=fmt,
-        output_dir=output,
-        parallel=parallel,
-        verbose=verbose,
-    )
+    titles = []
+    try:
+        info = get_playlist_info(url)
+        if info and info.entries:
+            selected_entries = info.entries[:last]
+            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(selected_entries, 1)]
+    except Exception:
+        pass
+
+    with MultiTerminalProgress(console, titles) as progress_callback:
+        results = download_channel(
+            url=url,
+            last_n=last,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output,
+            parallel=parallel,
+            verbose=verbose,
+            on_progress=progress_callback,
+        )
 
     _show_summary_table(results)
 
@@ -558,58 +581,87 @@ def search(
         int, typer.Option("--results", "-n", help="Number of results to show.")
     ] = 10,
 ) -> None:
-    """Search YouTube and display results."""
-    console.print(f"\n[cyan]Searching for:[/] [bold]{query}[/] ...\n")
+    import questionary
 
     from core.search import search_youtube
 
-    results = search_youtube(query=query, max_results=results_count)
+    current_page = 1
+    while True:
+        console.print(f"\n[cyan]Searching for:[/] [bold]{query}[/] (Page {current_page}) ...\n")
+        results = search_youtube(query=query, max_results=results_count, page=current_page)
 
-    if not results:
-        console.print("[yellow]No results found.[/]")
-        raise typer.Exit()
+        if not results:
+            console.print("[yellow]No results found.[/]")
+            if current_page > 1:
+                choice = questionary.select(
+                    "What would you like to do?",
+                    choices=["Go back to previous page", "New search query", "Exit"],
+                ).ask()
+                if choice == "Go back to previous page":
+                    current_page -= 1
+                    continue
+                elif choice == "New search query":
+                    new_query = questionary.text("Enter search query:").ask()
+                    if new_query and new_query.strip():
+                        query = new_query.strip()
+                        current_page = 1
+                    continue
+                else:
+                    break
+            else:
+                break
 
-    table = Table(
-        title="Search Results",
-        show_header=True,
-        header_style="bold cyan",
-        border_style="cyan",
-        expand=True,
-    )
-    table.add_column("#", style="dim", width=4, justify="right")
-    table.add_column("Title", style="bold white", ratio=3)
-    table.add_column("Channel", style="green", ratio=1)
-    table.add_column("Duration", justify="center", width=10)
-    table.add_column("Views", justify="right", width=12)
-    table.add_column("URL", style="dim cyan", ratio=2)
-
-    for i, entry in enumerate(results, 1):
-        dur = entry.duration
-        dur_str = _format_duration(dur) if dur else "N/A"
-        views = entry.view_count
-        views_str = f"{views:,}" if views else "N/A"
-        entry_url = entry.url or "N/A"
-        table.add_row(
-            str(i),
-            entry.title or "Unknown",
-            entry.uploader or "Unknown",
-            dur_str,
-            views_str,
-            entry_url,
+        table = Table(
+            title=f"Search Results (Page {current_page})",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="cyan",
+            expand=True,
         )
+        table.add_column("#", style="dim", width=4, justify="right")
+        table.add_column("Title", style="bold white", ratio=3)
+        table.add_column("Channel", style="green", ratio=1)
+        table.add_column("Duration", justify="center", width=10)
+        table.add_column("Views", justify="right", width=12)
+        table.add_column("Thumbnail & URL", style="dim cyan", ratio=2)
 
-    console.print(table)
-    console.print()
+        for i, entry in enumerate(results, 1):
+            dur = entry.duration
+            dur_str = _format_duration(dur) if dur else "N/A"
+            views = entry.view_count
+            views_str = f"{views:,}" if views else "N/A"
+            entry_url = entry.url or "N/A"
 
-    # Prompt for download (only if attached to a terminal)
-    if sys.stdin.isatty():
-        import questionary
+            thumb_info = ""
+            if entry.thumbnail_url:
+                thumb_info = f"[underline]Thumbnail:[/] {entry.thumbnail_url}\n"
 
-        should_download = questionary.confirm(
-            "Download a video from results?", default=False
+            table.add_row(
+                str(i),
+                entry.title or "Unknown",
+                entry.uploader or "Unknown",
+                dur_str,
+                views_str,
+                f"{thumb_info}[underline]Link:[/] {entry_url}",
+            )
+
+        console.print(table)
+        console.print()
+
+        if not sys.stdin.isatty():
+            break
+
+        choices = ["Download a result", "Next page of results"]
+        if current_page > 1:
+            choices.append("Previous page of results")
+        choices.extend(["New search query", "Exit"])
+
+        action = questionary.select(
+            "What would you like to do next?",
+            choices=choices,
         ).ask()
 
-        if should_download:
+        if action == "Download a result":
             idx_raw = questionary.text(
                 f"Enter result number (1-{len(results)}):"
             ).ask()
@@ -625,19 +677,43 @@ def search(
                     from core.downloader import download_video
                     from core.progress import TerminalProgress
 
-                    with TerminalProgress(console, "Download") as progress_callback:
-                        result = download_video(
-                            url=sel_url,
-                            quality="best",
-                            fmt="mp4",
-                            output_dir=".",
-                            progress_callback=progress_callback,
-                        )
-                    _show_result_panel(result)
+                    is_playlist = "[Playlist]" in selected.title or "playlist" in sel_url
+
+                    if is_playlist:
+                        from core.playlist import download_playlist
+                        console.print(f"[cyan]Downloading playlist:[/] {selected.title}")
+                        # We'll hook progress bar for playlist downloads in Phase 4
+                        results_dl = download_playlist(url=sel_url, output_dir=".")
+                        console.print(f"\n[green]Finished downloading playlist ({len(results_dl)} items).[/]")
+                    else:
+                        with TerminalProgress(console, "Download") as progress_callback:
+                            result = download_video(
+                                url=sel_url,
+                                quality="best",
+                                fmt="mp4",
+                                output_dir=".",
+                                progress_callback=progress_callback,
+                            )
+                        _show_result_panel(result)
                 else:
                     console.print("[red]Invalid selection.[/]")
-            except (ValueError, TypeError):
-                console.print("[red]Invalid input.[/]")
+            except (ValueError, TypeError) as e:
+                console.print(f"[red]Invalid input: {e}[/]")
+            continue
+        elif action == "Next page of results":
+            current_page += 1
+            continue
+        elif action == "Previous page of results":
+            current_page = max(1, current_page - 1)
+            continue
+        elif action == "New search query":
+            new_query = questionary.text("Enter search query:").ask()
+            if new_query and new_query.strip():
+                query = new_query.strip()
+                current_page = 1
+            continue
+        else:
+            break
 
 
 # ── info ─────────────────────────────────────────────────────────────────────
@@ -744,14 +820,17 @@ def chapters(
     )
 
     from core.metadata import download_by_chapters
+    from core.progress import TerminalProgress
 
-    results = download_by_chapters(
-        url=url,
-        quality=quality,
-        fmt=fmt,
-        output_dir=output,
-        verbose=verbose,
-    )
+    with TerminalProgress(console, "Chapters") as progress_callback:
+        results = download_by_chapters(
+            url=url,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output,
+            progress_callback=progress_callback,
+            verbose=verbose,
+        )
 
     _show_summary_table(results)
 
@@ -910,67 +989,4 @@ def manual() -> None:
     show_manual()
 
 
-# ── gui ──────────────────────────────────────────────────────────────────────
 
-
-@app.command(
-    help=(
-        "Launch the graphical user interface.\n\n"
-        "[bold cyan]Example:[/]\n\n"
-        "  yt-vd gui\n"
-    ),
-)
-def gui() -> None:
-    """Launch the yt-vd graphical user interface."""
-    console.print("[cyan]Launching GUI...[/]")
-
-    import os
-    import subprocess
-    import sys
-
-    if getattr(sys, "frozen", False):
-        exe_dir = os.path.dirname(sys.executable)
-        gui_exe_name = "yt-vd-gui.exe" if os.name == "nt" else "yt-vd-gui"
-        gui_exe = os.path.join(exe_dir, gui_exe_name)
-        if os.path.exists(gui_exe):
-            try:
-                subprocess.Popen([gui_exe])
-                return
-            except Exception as e:
-                console.print(
-                    Panel(
-                        f"[bold red]Failed to launch GUI executable.[/]\n\n"
-                        f"Error: {e}\n\n"
-                        f"Executable path: {gui_exe}",
-                        title="[bold red]GUI Launch Error[/]",
-                        border_style="red",
-                    )
-                )
-                raise typer.Exit(code=1)
-        else:
-            console.print(
-                Panel(
-                    f"[bold red]GUI executable not found.[/]\n\n"
-                    f"Could not find GUI binary at: {gui_exe}",
-                    title="[bold red]GUI Launch Error[/]",
-                    border_style="red",
-                )
-            )
-            raise typer.Exit(code=1)
-
-    try:
-        from gui.app import main as gui_main
-
-        gui_main()
-    except ImportError as exc:
-        console.print(
-            Panel(
-                f"[bold red]Could not start GUI.[/]\n\n"
-                f"Error: {exc}\n\n"
-                "Make sure [bold]customtkinter[/] is installed:\n"
-                "  [green]pip install customtkinter[/]",
-                title="[bold red]GUI Error[/]",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(code=1)

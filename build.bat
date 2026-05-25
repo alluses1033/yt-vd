@@ -2,7 +2,7 @@
 chcp 65001 >nul
 REM =========================================
 REM Build script for yt-vd (Windows)
-REM Builds standalone executables for CLI and GUI
+REM Builds standalone executable for CLI
 REM =========================================
 
 echo =========================================
@@ -19,7 +19,7 @@ if %ERRORLEVEL% neq 0 (
 REM Install dependencies including dev
 echo.
 echo [*] Installing dependencies...
-uv sync --group dev
+uv sync --all-groups
 
 REM Check for ffmpeg
 where ffmpeg >nul 2>&1
@@ -31,15 +31,14 @@ if %ERRORLEVEL% equ 0 (
 
 REM Build executables
 echo.
-echo [*] Building executables...
+echo [*] Building executable...
 uv run pyinstaller yt-vd.spec --clean --noconfirm
 
 echo.
 echo [OK] Build complete!
 echo.
-echo Executables are in dist\:
+echo Executable is in dist\:
 dir /b dist\yt-vd* 2>nul
 echo.
 echo Usage:
 echo   dist\yt-vd.exe --help        # CLI
-echo   dist\yt-vd-gui.exe           # GUI

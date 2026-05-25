@@ -1,6 +1,6 @@
 # yt-vd
 
-A desktop and terminal YouTube downloader for videos, playlists, audio, clips, chapters, subtitles, thumbnails, and download history.
+A terminal YouTube downloader for videos, playlists, audio, clips, chapters, subtitles, thumbnails, and download history.
 
 Repository: <https://github.com/alluses1033/yt-vd>
 
@@ -10,13 +10,12 @@ Repository: <https://github.com/alluses1033/yt-vd>
 
 - Interactive CLI: run `yt-vd` and choose what to do.
 - Standard CLI commands for scripts and power users.
-- GUI app: run `yt-vd gui` or `yt-vd-gui`.
 - Video downloads with quality caps and automatic fallback.
 - Playlist, channel, batch, chapter, and clip downloads.
 - Audio extraction to MP3, M4A, OPUS, FLAC, and WAV.
 - Subtitles with manual subtitle and auto-caption fallback.
 - Thumbnail and metadata embedding.
-- Download progress in CLI and GUI.
+- Download progress in CLI.
 - Local SQLite download history.
 - Standalone binary builds with PyInstaller.
 
@@ -34,7 +33,6 @@ Then open a new PowerShell window:
 
 ```powershell
 yt-vd --help
-yt-vd gui
 ```
 
 ### Linux
@@ -106,7 +104,6 @@ source .venv/bin/activate
 yt-vd
 
 # GUI
-yt-vd gui
 yt-vd-gui
 
 # Download one video
@@ -224,9 +221,7 @@ The install scripts expect these files on the latest GitHub release:
 | Platform | Asset |
 | --- | --- |
 | Windows CLI | `yt-vd.exe` |
-| Windows GUI | `yt-vd-gui.exe` |
 | Linux CLI | `yt-vd` |
-| Linux GUI | `yt-vd-gui` |
 
 ## Build Binaries
 
@@ -257,9 +252,7 @@ git push origin vX.Y.Z
 The workflow publishes these assets to the GitHub release:
 
 - `yt-vd.exe`
-- `yt-vd-gui.exe`
 - `yt-vd`
-- `yt-vd-gui`
 
 The PowerShell and Linux installers download from the latest release.
 
@@ -285,7 +278,7 @@ Then remove that folder from your user `Path` environment variable.
 ### Linux / macOS
 
 ```bash
-rm -f ~/.local/bin/yt-vd ~/.local/bin/yt-vd-gui
+rm -f ~/.local/bin/yt-vd
 ```
 
 ## Troubleshooting

@@ -10,7 +10,19 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
+# Configure verbose mode globally if requested
+if "-v" in sys.argv or "--verbose" in sys.argv:
+    import logging
+
+    import core.ydl_options
+    logging.basicConfig(level=logging.DEBUG)
+    core.ydl_options.VERBOSE = True
+
 from cli import app
 
 if __name__ == "__main__":
-    app()
+    try:
+        app()
+    except KeyboardInterrupt:
+        print("\n⚠ Interrupted — cleaning up...", file=sys.stderr)
+        sys.exit(130)

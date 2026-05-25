@@ -1,14 +1,14 @@
 [project]
 name = "yt-vd"
 version = "1.0.0"
-description = "A powerful YouTube video & playlist downloader with CLI and GUI — parallel downloads, smart quality fallback, audio extraction, and more."
+description = "A powerful YouTube video & playlist downloader with CLI — parallel downloads, smart quality fallback, audio extraction, and more."
 readme = "README.md"
 authors = [
     { name = "dhiraj-rajput", email = "rajputdhiraj1010@gmail.com" }
 ]
 requires-python = ">=3.12"
 license = { text = "MIT" }
-keywords = ["youtube", "downloader", "video", "playlist", "cli", "gui", "yt-dlp"]
+keywords = ["youtube", "downloader", "video", "playlist", "cli", "yt-dlp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -25,16 +25,11 @@ dependencies = [
     "typer[all]>=0.15.0",
     "rich>=13.9.0",
     "questionary>=2.1.0",
-    "customtkinter>=5.2.0",
-    "pillow>=11.0.0",
     "platformdirs>=4.3.0",
 ]
 
 [project.scripts]
 yt-vd = "cli:app"
-
-[project.gui-scripts]
-yt-vd-gui = "gui.app:main"
 
 [dependency-groups]
 dev = [
@@ -50,7 +45,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["core", "gui", "gui.frames", "gui.widgets"]
+packages = ["core"]
 py-modules = ["cli", "constants", "interactive", "manual", "__main__", "__init__"]
 
 [tool.ruff]

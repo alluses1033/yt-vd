@@ -18,6 +18,9 @@ _SUPPRESSED_WARNING_PARTS = (
 )
 
 
+VERBOSE = False
+
+
 class QuietYDLLogger:
     """Small yt-dlp logger that keeps known noisy warnings out of the UI."""
 
@@ -31,7 +34,10 @@ class QuietYDLLogger:
         if any(part in msg for part in _SUPPRESSED_WARNING_PARTS):
             logger.debug("Suppressed yt-dlp warning: %s", msg)
             return
-        logger.warning(msg)
+        if VERBOSE:
+            logger.warning(msg)
+        else:
+            logger.debug("yt-dlp warning: %s", msg)
 
     def error(self, msg: str) -> None:
         logger.error(msg)

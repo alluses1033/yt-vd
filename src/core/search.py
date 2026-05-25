@@ -7,6 +7,8 @@ returning results as ``VideoInfo`` dataclass instances.
 from __future__ import annotations
 
 import logging
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import yt_dlp
@@ -17,71 +19,134 @@ from core.ydl_options import with_base_ydl_opts
 logger = logging.getLogger(__name__)
 
 
-def search_youtube(query: str, max_results: int = 10) -> list[VideoInfo]:
-    """Search YouTube for videos matching a query.
+def search_youtube(
+    query: str,
+    max_results: int = 10,
+    page: int = 1,
+) -> list[VideoInfo]:
+    """Search YouTube for videos and playlists matching a query.
 
-    Uses yt-dlp's ``ytsearch`` extractor for reliable results without
-    needing an API key.
+    Uses flat extraction for speed and a thread pool to query videos and playlists in parallel.
 
     Args:
         query: Search query string.
-        max_results: Maximum number of results to return (1–50).
+        max_results: Maximum number of results to return.
+        page: Page number for pagination.
 
     Returns:
-        A list of ``VideoInfo`` instances for each search result.
-
-    Examples:
-        >>> results = search_youtube("python tutorial", max_results=5)
-        >>> len(results) <= 5
-        True
+        A list of ``VideoInfo`` instances for search results.
     """
-    max_results = max(1, min(max_results, 50))
+    limit = page * max_results
 
-    opts: dict[str, Any] = with_base_ydl_opts({
-        "skip_download": True,
-        "extract_flat": "in_playlist",
-        "ignoreerrors": True,
-        "default_search": "auto",
-    })
+    # Run video search and playlist search in parallel
+    def get_videos() -> list[dict[str, Any]]:
+        opts = with_base_ydl_opts({
+            "skip_download": True,
+            "extract_flat": True,
+            "ignoreerrors": True,
+        })
+        search_url = f"ytsearch{limit}:{query}"
+        results = []
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(search_url, download=False)
+                if info and "entries" in info:
+                    for entry in info["entries"]:
+                        if entry:
+                            results.append(entry)
+        except Exception as e:
+            logger.debug("Video search failed: %s", e)
+        return results
 
-    search_url = f"ytsearch{max_results}:{query}"
-    results: list[VideoInfo] = []
+    def get_playlists() -> list[dict[str, Any]]:
+        opts = with_base_ydl_opts({
+            "skip_download": True,
+            "extract_flat": True,
+            "ignoreerrors": True,
+        })
+        encoded_query = urllib.parse.quote_plus(query)
+        search_url = f"https://www.youtube.com/results?search_query={encoded_query}&sp=EgIQAw%253D%253D"
+        results = []
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(search_url, download=False)
+                if info and "entries" in info:
+                    for entry in info["entries"]:
+                        if entry:
+                            entry["_is_playlist"] = True
+                            results.append(entry)
+        except Exception as e:
+            logger.debug("Playlist search failed: %s", e)
+        return results
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(search_url, download=False)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f_videos = executor.submit(get_videos)
+        f_playlists = executor.submit(get_playlists)
 
-        if info is None:
-            return results
+        video_entries = f_videos.result()
+        playlist_entries = f_playlists.result()
 
-        entries: list[dict[str, Any]] = info.get("entries") or []
+    # Interleave results to show a mix of videos and playlists
+    combined_entries = []
+    max_len = max(len(video_entries), len(playlist_entries))
+    for i in range(max_len):
+        if i < len(video_entries):
+            combined_entries.append(video_entries[i])
+        if i < len(playlist_entries):
+            combined_entries.append(playlist_entries[i])
 
-        for entry in entries:
-            if entry is None:
-                continue
+    # Paginate by slicing the combined results
+    start_idx = (page - 1) * max_results
+    end_idx = page * max_results
+    sliced_entries = combined_entries[start_idx:end_idx]
 
-            video_info = VideoInfo(
-                title=entry.get("title", "Unknown"),
-                url=_entry_url(entry),
-                video_id=entry.get("id", ""),
-                uploader=entry.get("uploader", "Unknown"),
-                duration=float(entry.get("duration") or 0.0),
-                view_count=int(entry.get("view_count") or 0),
-                upload_date=entry.get("upload_date", ""),
-                description=entry.get("description", ""),
-                thumbnail_url=entry.get("thumbnail", ""),
-                formats=[],
-                available_qualities=[],
-                chapters=entry.get("chapters") or [],
-                subtitles=entry.get("subtitles") or {},
-            )
-            results.append(video_info)
+    video_infos: list[VideoInfo] = []
+    for entry in sliced_entries:
+        is_playlist = (
+            entry.get("_is_playlist", False)
+            or entry.get("_type") == "playlist"
+            or "playlist" in entry.get("url", "")
+            or "PL" in entry.get("id", "")
+        )
 
-    except Exception:
-        logger.exception("YouTube search failed for query: %r", query)
+        title = entry.get("title", "Unknown")
+        if is_playlist and not title.startswith("[Playlist]"):
+            title = f"[Playlist] {title}"
 
-    logger.info("Search for %r returned %d results", query, len(results))
-    return results
+        # Parse thumbnail url
+        thumb = entry.get("thumbnail")
+        if not thumb and entry.get("thumbnails"):
+            thumbs = entry.get("thumbnails")
+            if isinstance(thumbs, list) and len(thumbs) > 0:
+                thumb = thumbs[-1].get("url")
+
+        # Parse duration
+        dur_val = entry.get("duration")
+        duration = float(dur_val) if dur_val is not None else 0.0
+
+        # Parse views
+        views_val = entry.get("view_count")
+        view_count = int(views_val) if views_val is not None else 0
+
+        video_info = VideoInfo(
+            title=title,
+            url=_entry_url(entry),
+            video_id=entry.get("id", ""),
+            uploader=entry.get("uploader") or entry.get("channel") or "Unknown",
+            duration=duration,
+            view_count=view_count,
+            upload_date=entry.get("upload_date", ""),
+            description=entry.get("description", ""),
+            thumbnail_url=thumb or "",
+            formats=[],
+            available_qualities=[],
+            chapters=entry.get("chapters") or [],
+            subtitles=entry.get("subtitles") or {},
+        )
+        video_infos.append(video_info)
+
+    logger.info("Search for %r page %d returned %d results", query, page, len(video_infos))
+    return video_infos
 
 
 def _entry_url(entry: dict[str, Any]) -> str:
@@ -95,5 +160,7 @@ def _entry_url(entry: dict[str, Any]) -> str:
 
     video_id = str(entry.get("id") or url)
     if video_id:
+        if entry.get("_is_playlist") or "PL" in video_id:
+            return f"https://www.youtube.com/playlist?list={video_id}"
         return f"https://www.youtube.com/watch?v={video_id}"
     return ""

@@ -17,7 +17,6 @@ def show_manual() -> None:
 
     rows = [
         ("yt-vd", "Open the interactive menu"),
-        ("yt-vd gui", "Open the desktop app"),
         ("yt-vd download URL", "Download one video"),
         ("yt-vd download URL -s --sub-lang en", "Download video with subtitles"),
         ("yt-vd playlist URL -p 4", "Download a playlist with 4 workers"),

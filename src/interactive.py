@@ -297,92 +297,155 @@ def _action_search() -> None:
         return
 
     count_raw = questionary.text(
-        "Number of results (default 10):", default="10", style=CUSTOM_STYLE
+        "Number of results per page (default 10):", default="10", style=CUSTOM_STYLE
     ).ask()
     try:
-        count = max(1, min(50, int(count_raw or 10)))
+        count = max(1, int(count_raw or 10))
     except ValueError:
         count = 10
 
-    console.print(f"\n[cyan]Searching for:[/] [bold]{query.strip()}[/] ...\n")
-
     from core.search import search_youtube
 
-    results = search_youtube(query=query.strip(), max_results=count)
+    current_page = 1
+    while True:
+        console.print(f"\n[cyan]Searching for:[/] [bold]{query.strip()}[/] (Page {current_page}) ...\n")
+        results = search_youtube(query=query.strip(), max_results=count, page=current_page)
 
-    if not results:
-        console.print("[red]No results found.[/]")
-        return
-
-    from rich.table import Table
-
-    table = Table(
-        title="Search Results",
-        show_header=True,
-        header_style="bold cyan",
-        border_style="cyan",
-        expand=True,
-    )
-    table.add_column("#", style="dim", width=4, justify="right")
-    table.add_column("Title", style="bold white", ratio=3)
-    table.add_column("Channel", style="green", ratio=1)
-    table.add_column("Duration", justify="center", width=10)
-    table.add_column("Views", justify="right", width=12)
-
-    for i, entry in enumerate(results, 1):
-        dur = entry.duration
-        m, s = divmod(int(dur), 60)
-        h, m = divmod(m, 60)
-        dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-        views = entry.view_count
-        views_str = f"{views:,}" if views else "N/A"
-        table.add_row(
-            str(i),
-            entry.title or "Unknown",
-            entry.uploader or "Unknown",
-            dur_str,
-            views_str,
-        )
-
-    console.print(table)
-    console.print()
-
-    # Ask if they want to download one
-    download = questionary.confirm(
-        "Download a video from results?", default=False, style=CUSTOM_STYLE
-    ).ask()
-
-    if download:
-        idx_raw = questionary.text(
-            f"Enter result number (1-{len(results)}):", style=CUSTOM_STYLE
-        ).ask()
-        try:
-            idx = int(idx_raw) - 1
-            if 0 <= idx < len(results):
-                selected = results[idx]
-                selected_url = selected.url
-                console.print(f"\n[cyan]Selected:[/] [bold]{selected.title}[/]")
-
-                quality = _ask_quality()
-                fmt = _ask_video_format()
-                output = _ask_output_dir()
-
-                from core.downloader import download_video
-                from core.progress import TerminalProgress
-
-                with TerminalProgress(console, "Download") as progress_callback:
-                    result = download_video(
-                        url=selected_url,
-                        quality=quality,
-                        fmt=fmt,
-                        output_dir=output,
-                        progress_callback=progress_callback,
-                    )
-                _show_result(result)
+        if not results:
+            console.print("[red]No results found.[/]")
+            if current_page > 1:
+                choice = questionary.select(
+                    "What would you like to do?",
+                    choices=["Go back to previous page", "New search query", "Exit"],
+                    style=CUSTOM_STYLE,
+                ).ask()
+                if choice == "Go back to previous page":
+                    current_page -= 1
+                    continue
+                elif choice == "New search query":
+                    new_query = questionary.text("Enter search query:", style=CUSTOM_STYLE).ask()
+                    if new_query and new_query.strip():
+                        query = new_query.strip()
+                        current_page = 1
+                    continue
+                else:
+                    break
             else:
-                console.print("[red]Invalid selection.[/]")
-        except (ValueError, TypeError):
-            console.print("[red]Invalid input.[/]")
+                break
+
+        from rich.table import Table
+
+        table = Table(
+            title=f"Search Results (Page {current_page})",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="cyan",
+            expand=True,
+        )
+        table.add_column("#", style="dim", width=4, justify="right")
+        table.add_column("Title", style="bold white", ratio=3)
+        table.add_column("Channel", style="green", ratio=1)
+        table.add_column("Duration", justify="center", width=10)
+        table.add_column("Views", justify="right", width=12)
+        table.add_column("Thumbnail & URL", style="dim cyan", ratio=2)
+
+        for i, entry in enumerate(results, 1):
+            dur = entry.duration
+            m, s = divmod(int(dur), 60)
+            h, m = divmod(m, 60)
+            dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}" if dur else "N/A"
+            views = entry.view_count
+            views_str = f"{views:,}" if views else "N/A"
+            entry_url = entry.url or "N/A"
+
+            thumb_info = ""
+            if entry.thumbnail_url:
+                thumb_info = f"[underline]Thumbnail:[/] {entry.thumbnail_url}\n"
+
+            table.add_row(
+                str(i),
+                entry.title or "Unknown",
+                entry.uploader or "Unknown",
+                dur_str,
+                views_str,
+                f"{thumb_info}[underline]Link:[/] {entry_url}",
+            )
+
+        console.print(table)
+        console.print()
+
+        choices = ["Download a result", "Next page of results"]
+        if current_page > 1:
+            choices.append("Previous page of results")
+        choices.extend(["New search query", "Exit"])
+
+        action = questionary.select(
+            "What would you like to do next?",
+            choices=choices,
+            style=CUSTOM_STYLE,
+        ).ask()
+
+        if action == "Download a result":
+            idx_raw = questionary.text(
+                f"Enter result number (1-{len(results)}):", style=CUSTOM_STYLE
+            ).ask()
+            try:
+                idx = int(idx_raw) - 1
+                if 0 <= idx < len(results):
+                    selected = results[idx]
+                    selected_url = selected.url
+                    console.print(f"\n[cyan]Selected:[/] [bold]{selected.title}[/]")
+
+                    is_playlist = "[Playlist]" in selected.title or "playlist" in selected_url
+
+                    if is_playlist:
+                        quality = _ask_quality()
+                        output = _ask_output_dir()
+
+                        from core.playlist import download_playlist
+                        console.print(f"[cyan]Downloading playlist:[/] {selected.title}")
+                        results_dl = download_playlist(
+                            url=selected_url,
+                            quality=quality,
+                            output_dir=output,
+                        )
+                        console.print(f"\n[green]Finished downloading playlist ({len(results_dl)} items).[/]")
+                    else:
+                        quality = _ask_quality()
+                        fmt = _ask_video_format()
+                        output = _ask_output_dir()
+
+                        from core.downloader import download_video
+                        from core.progress import TerminalProgress
+
+                        with TerminalProgress(console, "Download") as progress_callback:
+                            result = download_video(
+                                url=selected_url,
+                                quality=quality,
+                                fmt=fmt,
+                                output_dir=output,
+                                progress_callback=progress_callback,
+                            )
+                        _show_result(result)
+                else:
+                    console.print("[red]Invalid selection.[/]")
+            except (ValueError, TypeError) as e:
+                console.print(f"[red]Invalid input: {e}[/]")
+            continue
+        elif action == "Next page of results":
+            current_page += 1
+            continue
+        elif action == "Previous page of results":
+            current_page = max(1, current_page - 1)
+            continue
+        elif action == "New search query":
+            new_query = questionary.text("Enter search query:", style=CUSTOM_STYLE).ask()
+            if new_query and new_query.strip():
+                query = new_query.strip()
+                current_page = 1
+            continue
+        else:
+            break
 
 
 def _action_video_info() -> None:

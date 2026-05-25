@@ -374,6 +374,12 @@ def download_video(
                 time.sleep(wait)
             else:
                 break
+        except KeyboardInterrupt:
+            logger.warning("Download interrupted by user.")
+            safety = SafeDownloadManager(output_dir)
+            safety.cleanup_temp()
+            tracker.set_status(DownloadStatus.FAILED)
+            raise
         except Exception as e:
             last_error = e
             break

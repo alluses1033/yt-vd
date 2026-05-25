@@ -383,7 +383,12 @@ def _make_chapter_range(
     Returns:
         A callable that yt-dlp uses for download_ranges.
     """
-    def _ranges(info_dict: dict[str, Any], ydl: Any) -> list[tuple[float, float]]:
-        return [(start, end)]
+    def _ranges(info_dict: dict[str, Any], ydl: Any) -> list[dict[str, Any]]:
+        return [{
+            "start_time": start,
+            "end_time": end,
+            "title": info_dict.get("title", "Chapter"),
+            "index": 0,
+        }]
 
     return _ranges

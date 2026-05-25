@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────
 # Build script for yt-vd
-# Builds standalone executables for CLI and GUI
+# Builds standalone executable for CLI
 # ─────────────────────────────────────────────
 
 set -e
@@ -19,7 +19,7 @@ fi
 # Install dependencies including dev
 echo ""
 echo "📦 Installing dependencies..."
-uv sync --group dev
+uv sync --all-groups
 
 # Check for ffmpeg (optional but recommended)
 if command -v ffmpeg &> /dev/null; then
@@ -30,15 +30,14 @@ fi
 
 # Build executables
 echo ""
-echo "🔨 Building executables..."
+echo "🔨 Building executable..."
 uv run pyinstaller yt-vd.spec --clean --noconfirm
 
 echo ""
 echo "✅ Build complete!"
 echo ""
-echo "Executables are in dist/:"
+echo "Executable is in dist/:"
 ls -la dist/yt-vd* 2>/dev/null || echo "  (check dist/ directory)"
 echo ""
 echo "Usage:"
 echo "  ./dist/yt-vd --help        # CLI"
-echo "  ./dist/yt-vd-gui           # GUI"
