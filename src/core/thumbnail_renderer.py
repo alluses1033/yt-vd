@@ -7,10 +7,10 @@ foot, mlterm, mintty), or ANSI unicode half-blocks as a universal fallback.
 
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 import urllib.request
-import base64
 from io import BytesIO
 from pathlib import Path
 
@@ -43,17 +43,17 @@ class TerminalImage:
             for i in range(self.height - 1):
                 yield Segment(" " * self.width)
                 yield Segment("\n")
-            
+
             # On the last line, yield spaces, then the image sequence
             yield Segment(" " * self.width)
-            
+
             # Now the cursor is at the bottom-right of the cell.
             # We want to move to the top-left of the cell to draw the image.
             # This ensures the image is drawn *after* Rich prints the spaces,
             # so the spaces don't overwrite the image pixels (critical for Sixel).
             move_up = f"\033[{self.height - 1}A" if self.height > 1 else ""
             move_left = f"\033[{self.width}D" if self.width > 0 else ""
-            
+
             # We wrap the sequence in VT100 save/restore cursor codes
             yield ControlSegment(f"\0337{move_left}{move_up}{self.raw_sequence}\0338")
         else:
@@ -231,19 +231,19 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
         # Load and render using Pillow
         with Image.open(temp_file) as raw_img:
             rgb_img = raw_img.convert("RGB")
-            
+
             # Detect terminal protocol
             protocol = get_terminal_protocol()
-            
+
             if protocol == "kitty":
                 # Kitty native graphics protocol — highest fidelity (24-bit PNG)
                 pixel_width = width * 8
                 pixel_height = height * 16
                 resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
-                
+
                 base64_data = _image_to_base64_png(resized_img)
                 escape_seq = f"\033_Ga=T,f=100,c={width},r={height},C=1;{base64_data}\033\\"
-                
+
                 return TerminalImage(escape_seq, width, height, is_inline=True)
 
             if protocol == "iterm2":
@@ -251,10 +251,10 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
                 pixel_width = width * 8
                 pixel_height = height * 16
                 resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
-                
+
                 base64_data = _image_to_base64_png(resized_img)
                 escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1;doNotMoveCursor=1:{base64_data}\a"
-                
+
                 return TerminalImage(escape_seq, width, height, is_inline=True)
 
             if protocol == "sixel":

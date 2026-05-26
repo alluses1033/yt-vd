@@ -38,7 +38,7 @@ function Get-ReleaseAsset {
 
 function Remove-ExistingInstallation {
 
-    Write-Host "Cleaning previous installation..." -ForegroundColor Yellow
+    Write-Host "Cleaning previous installation..."
 
     Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
@@ -60,7 +60,7 @@ function Download-Asset {
     $Url = $Asset.browser_download_url
     $Size = Format-Bytes -Bytes $Asset.size
 
-    Write-Host "Downloading $Name ($Size)..." -ForegroundColor Cyan
+    Write-Host "Downloading $Name ($Size)..."
 
     Invoke-WebRequest `
         -Uri $Url `
@@ -68,7 +68,7 @@ function Download-Asset {
         -Headers @{ "User-Agent" = "yt-vd-installer" }
 }
 
-Write-Host "Installing yt-vd..." -ForegroundColor Cyan
+Write-Host "Installing yt-vd..."
 
 # Fetch release
 $Release = Invoke-RestMethod `
@@ -77,7 +77,7 @@ $Release = Invoke-RestMethod `
 
 $RemoteVersion = $Release.tag_name
 
-Write-Host "Latest version: $RemoteVersion" -ForegroundColor Green
+Write-Host "Latest version: $RemoteVersion"
 
 # Remove old installation FIRST
 Remove-ExistingInstallation
@@ -107,7 +107,7 @@ if (($UserPath -split ";") -notcontains $InstallDir) {
 
     $env:Path += ";$InstallDir"
 
-    Write-Host "Added to PATH." -ForegroundColor Green
+    Write-Host "Added to PATH."
 }
 
 # Create uninstaller
@@ -147,7 +147,7 @@ if ($UserPath) {
     )
 }
 
-Write-Host "yt-vd uninstalled successfully." -ForegroundColor Green
+Write-Host "yt-vd uninstalled successfully."
 '@
 
 $UninstallScript |
@@ -158,12 +158,12 @@ $UninstallScript |
 
 # FFmpeg warning
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    Write-Host "FFmpeg not found." -ForegroundColor Yellow
-    Write-Host "Install using:" -ForegroundColor Yellow
+    Write-Host "FFmpeg not found."
+    Write-Host "Install using:"
     Write-Host "winget install Gyan.FFmpeg"
 }
 
 Write-Host ""
-Write-Host "yt-vd installed successfully." -ForegroundColor Green
+Write-Host "yt-vd installed successfully."
 Write-Host "Restart PowerShell and run:"
 Write-Host "yt-vd --help"

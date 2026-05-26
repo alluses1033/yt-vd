@@ -193,7 +193,7 @@ class MultiTerminalProgress:
 
         with self._lock:
             total_videos = len(self.titles)
-            
+
             # Check if this index is finished
             is_finished = info.status in (
                 DownloadStatus.COMPLETED,
@@ -207,7 +207,7 @@ class MultiTerminalProgress:
                 done = len(self._finished_indices)
                 remain = total_videos - done
                 percent_str = f"{(done / total_videos) * 100:5.1f}%" if total_videos > 0 else "100.0%"
-                
+
                 self._progress.update(
                     self._overall_task_id,
                     description=f"[bold green]Playlist Progress: {done}/{total_videos} done ({remain} remaining)[/]",
@@ -236,7 +236,7 @@ class MultiTerminalProgress:
                         eta="--:--",
                     )
                     self._active_tasks[idx] = task_id
-                
+
                 # Now update the task
                 task_id = self._active_tasks[idx]
                 title = _truncate(info.title or self.titles[idx] or f"Video {idx+1}", 30)

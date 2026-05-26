@@ -73,12 +73,12 @@ class SafeDownloadManager:
         """
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._temp_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Hide the parent .yt-vd-temp folder on Windows
         parent = self._temp_dir.parent
         if parent.name == TEMP_DIR_NAME:
             _hide_folder(parent)
-            
+
         return self._temp_dir
 
     def get_ydl_paths(self) -> dict[str, Any]:

@@ -7,8 +7,8 @@ with support for format selection, bitrate control, and metadata embedding.
 from __future__ import annotations
 
 import logging
-import time
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,13 +78,13 @@ def extract_audio(
 
     # Setup progress
     tracker = ProgressTracker()
-    
+
     def wrapped_callback(info: ProgressInfo) -> None:
         if shutdown_event and shutdown_event.is_set():
             raise KeyboardInterrupt("Cancelled")
         if progress_callback:
             progress_callback(info)
-            
+
     tracker.add_callback(wrapped_callback)
 
     # Extract video ID from URL or fallback

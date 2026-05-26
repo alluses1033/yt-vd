@@ -7,7 +7,6 @@ the core engine, re-using the same Rich output helpers as the CLI commands.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from pathlib import Path
 

@@ -278,13 +278,13 @@ def download_video(
 
     # Setup progress tracker
     tracker = ProgressTracker()
-    
+
     def wrapped_callback(info: ProgressInfo) -> None:
         if shutdown_event and shutdown_event.is_set():
             raise KeyboardInterrupt("Cancelled")
         if progress_callback:
             progress_callback(info)
-            
+
     tracker.add_callback(wrapped_callback)
 
     # Quality fallback: check if requested quality is available
@@ -422,11 +422,11 @@ def download_video(
     result.elapsed_seconds = time.monotonic() - start_time
     tracker.set_status(DownloadStatus.FAILED)
     logger.error("Download failed for %s: %s", url, result.error_message)
-    
+
     # Clean up temp directory even on failure so empty folders are removed
     safety = SafeDownloadManager(output_path, video_id=video_id)
     safety.cleanup_temp()
-    
+
     return result
 
 

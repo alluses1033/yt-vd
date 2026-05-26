@@ -1164,4 +1164,118 @@ def manual() -> None:
     show_manual()
 
 
+# ── uninstall ─────────────────────────────────────────────────────────────────
+
+
+@app.command(
+    help="Uninstall yt-vd and clean up all associated files.",
+)
+def uninstall(
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip confirmation prompt.")
+    ] = False,
+) -> None:
+    """Uninstall yt-vd and clean up all associated files."""
+    if not yes:
+        confirm = typer.confirm("Are you sure you want to uninstall yt-vd and delete all config/history data?")
+        if not confirm:
+            console.print("Uninstallation cancelled.")
+            raise typer.Abort()
+
+    import os
+    import shutil
+    import subprocess
+
+    import platformdirs
+
+    # Identify user appdata dir
+    user_data = Path(platformdirs.user_data_dir("yt-vd", "yt-vd"))
+
+    # Determine if running from a compiled binary or source
+    is_frozen = getattr(sys, "frozen", False)
+    exe_path = Path(sys.executable)
+
+    console.print("Uninstalling yt-vd...")
+
+    if sys.platform == "win32":
+        # Windows-specific uninstall
+        install_dir = None
+        if is_frozen:
+            install_dir = exe_path.parent
+        else:
+            # Fallback to default install dir if not frozen but it exists
+            default_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "yt-vd"
+            if default_dir.exists():
+                install_dir = default_dir
+
+        # We launch a detached PowerShell command to clean up after we exit.
+        # This is necessary because on Windows we cannot delete the running .exe file.
+        ps_parts = ["Start-Sleep -Seconds 1"]
+
+        # Kill running processes of yt-vd/yt-vd-gui (except this one if possible, but force kill is fine since we exit)
+        ps_parts.append("Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue")
+
+        # Clean config/history
+        user_data_str = str(user_data)
+        ps_parts.append(f"if (Test-Path '{user_data_str}') {{ Remove-Item '{user_data_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
+
+        # Clean installation folder
+        if install_dir:
+            install_dir_str = str(install_dir)
+            ps_parts.append(f"if (Test-Path '{install_dir_str}') {{ Remove-Item '{install_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
+
+            # Clean PATH
+            ps_parts.append(
+                f"$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+                f"if ($UserPath) {{ "
+                f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{install_dir_str}' -and $_ -ne '{install_dir_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
+                f"[Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User') "
+                f"}}"
+            )
+
+        ps_cmd = "; ".join(ps_parts)
+
+        # Launch detached PowerShell
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else 0,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            close_fds=True
+        )
+        console.print("Cleanup process started in the background. Goodbye!")
+        raise typer.Exit()
+    else:
+        # Unix/macOS uninstall
+        # Delete user config/history
+        if user_data.exists():
+            try:
+                shutil.rmtree(user_data)
+                console.print("Deleted config/history directory.")
+            except Exception as e:
+                console.print(f"Warning: Failed to delete config directory: {e}")
+
+        # Delete binary if running frozen binary
+        if is_frozen:
+            try:
+                exe_path.unlink()
+                console.print("Deleted binary file.")
+            except Exception as e:
+                console.print(f"Warning: Failed to delete binary file: {e}")
+        else:
+            # Check default install path ~/.local/bin/yt-vd
+            default_bin = Path.home() / ".local" / "bin" / "yt-vd"
+            if default_bin.exists():
+                try:
+                    default_bin.unlink()
+                    console.print("Deleted binary from ~/.local/bin.")
+                except Exception as e:
+                    console.print(f"Warning: Failed to delete binary at ~/.local/bin: {e}")
+
+        console.print("yt-vd has been successfully uninstalled.")
+        raise typer.Exit()
+
+
+
 
