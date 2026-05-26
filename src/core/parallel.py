@@ -59,45 +59,47 @@ def download_batch(
 
     shutdown_event = threading.Event()
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                download_video,
-                url,
-                output_dir=output_path,
-                quality=quality,
-                video_format=fmt,
-                verbose=verbose,
-                shutdown_event=shutdown_event,
-                **kwargs,
-            ): url
-            for url in urls
-        }
+    executor = ThreadPoolExecutor(max_workers=workers)
+    futures = {
+        executor.submit(
+            download_video,
+            url,
+            output_dir=output_path,
+            quality=quality,
+            video_format=fmt,
+            verbose=verbose,
+            shutdown_event=shutdown_event,
+            **kwargs,
+        ): url
+        for url in urls
+    }
 
-        try:
-            for future in as_completed(futures):
-                url = futures[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    logger.error("Error downloading %s: %s", url, e)
-                    results.append(
-                        DownloadResult(
-                            url=url,
-                            status=DownloadStatus.FAILED,
-                            error_message=str(e),
-                        )
+    try:
+        for future in as_completed(futures):
+            url = futures[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.error("Error downloading %s: %s", url, e)
+                results.append(
+                    DownloadResult(
+                        url=url,
+                        status=DownloadStatus.FAILED,
+                        error_message=str(e),
                     )
-        except KeyboardInterrupt:
-            logger.warning("Batch download interrupted by user. Cancelling pending tasks...")
-            shutdown_event.set()
-            for future in futures:
-                future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            from core.fragment_safety import SafeDownloadManager
-            SafeDownloadManager(output_dir).cleanup_temp()
-            raise
+                )
+    except KeyboardInterrupt:
+        logger.warning("Batch download interrupted by user. Cancelling pending tasks...")
+        shutdown_event.set()
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        from core.fragment_safety import SafeDownloadManager
+        SafeDownloadManager(output_dir).cleanup_temp()
+        raise
+    finally:
+        executor.shutdown(wait=False)
 
     return results
 
@@ -179,34 +181,36 @@ def download_parallel(
 
         return result
 
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = {
-            executor.submit(download_worker, idx, entry): idx
-            for idx, entry in enumerate(entries)
-        }
+    executor = ThreadPoolExecutor(max_workers=worker_count)
+    futures = {
+        executor.submit(download_worker, idx, entry): idx
+        for idx, entry in enumerate(entries)
+    }
 
-        try:
-            for future in as_completed(futures):
-                idx = futures[future]
-                try:
-                    results[idx] = future.result()
-                except Exception as e:
-                    logger.error("Worker error downloading index %d: %s", idx, e)
-                    results[idx] = DownloadResult(
-                        url="",
-                        status=DownloadStatus.FAILED,
-                        error_message=str(e),
-                    )
-                    if on_video_done:
-                        on_video_done(idx, results[idx])
-        except KeyboardInterrupt:
-            logger.warning("Parallel download interrupted by user. Cancelling pending tasks...")
-            shutdown_event.set()
-            for future in futures:
-                future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            from core.fragment_safety import SafeDownloadManager
-            SafeDownloadManager(dest_dir).cleanup_temp()
-            raise
+    try:
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                results[idx] = future.result()
+            except Exception as e:
+                logger.error("Worker error downloading index %d: %s", idx, e)
+                results[idx] = DownloadResult(
+                    url="",
+                    status=DownloadStatus.FAILED,
+                    error_message=str(e),
+                )
+                if on_video_done:
+                    on_video_done(idx, results[idx])
+    except KeyboardInterrupt:
+        logger.warning("Parallel download interrupted by user. Cancelling pending tasks...")
+        shutdown_event.set()
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        from core.fragment_safety import SafeDownloadManager
+        SafeDownloadManager(dest_dir).cleanup_temp()
+        raise
+    finally:
+        executor.shutdown(wait=False)
 
     return results
