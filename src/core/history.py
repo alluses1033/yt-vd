@@ -7,6 +7,7 @@ and query utilities for tracking past downloads.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import threading
 from collections.abc import Generator
@@ -26,6 +27,9 @@ from constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Precompile video ID extraction pattern globally for performance
+_VIDEO_ID_PATTERN = re.compile(r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})")
 
 # ──────────────────────────────────────────────
 # Database Schema
@@ -330,14 +334,8 @@ def _extract_video_id(url: str) -> str:
     Returns:
         The video ID string, or an empty string if extraction fails.
     """
-    import re
-
-    patterns = [
-        r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})",
-    ]
-    for pattern in patterns:
-        if match := re.search(pattern, url):
-            return match.group(1)
+    if match := _VIDEO_ID_PATTERN.search(url):
+        return match.group(1)
     return ""
 
 

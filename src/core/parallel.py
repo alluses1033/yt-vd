@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -56,6 +57,8 @@ def download_batch(
     workers = min(max(1, parallel), len(urls))
     logger.info("Starting batch download of %d videos with %d workers", len(urls), workers)
 
+    shutdown_event = threading.Event()
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(
@@ -65,6 +68,7 @@ def download_batch(
                 quality=quality,
                 video_format=fmt,
                 verbose=verbose,
+                shutdown_event=shutdown_event,
                 **kwargs,
             ): url
             for url in urls
@@ -87,6 +91,7 @@ def download_batch(
                     )
         except KeyboardInterrupt:
             logger.warning("Batch download interrupted by user. Cancelling pending tasks...")
+            shutdown_event.set()
             for future in futures:
                 future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
@@ -139,6 +144,8 @@ def download_parallel(
     worker_count = min(max(1, workers), len(entries))
     logger.info("Downloading %d playlist entries with %d workers", len(entries), worker_count)
 
+    shutdown_event = threading.Event()
+
     def download_worker(idx: int, entry: dict[str, Any]) -> DownloadResult:
         video_url = entry.get("url") or entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
 
@@ -147,6 +154,8 @@ def download_parallel(
         output_template = f"{index_prefix}%(title)s.%(ext)s"
 
         def progress_callback(info: ProgressInfo) -> None:
+            if shutdown_event.is_set():
+                raise KeyboardInterrupt("Cancelled")
             if on_progress:
                 on_progress(idx, info)
 
@@ -161,6 +170,7 @@ def download_parallel(
             video_format=fmt,
             output_template=output_template,
             progress_callback=progress_callback,
+            shutdown_event=shutdown_event,
             **worker_kwargs,
         )
 
@@ -191,6 +201,7 @@ def download_parallel(
                         on_video_done(idx, results[idx])
         except KeyboardInterrupt:
             logger.warning("Parallel download interrupted by user. Cancelling pending tasks...")
+            shutdown_event.set()
             for future in futures:
                 future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)

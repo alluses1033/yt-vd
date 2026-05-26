@@ -44,7 +44,16 @@ cli_analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["customtkinter", "tkinter"],  # Exclude GUI deps from CLI build
+    excludes=[
+        "customtkinter",
+        "tkinter",
+        "unittest",
+        "pydoc",
+        "setuptools",
+        "lib2to3",
+        "distutils",
+        "xmlrpc",
+    ],  # Exclude GUI and unused standard library deps from CLI build
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

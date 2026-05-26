@@ -7,6 +7,7 @@ languages, and builds yt-dlp subtitle options.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,6 +17,9 @@ from constants import SubtitleFormat
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
+
+# Precompile filename normalization pattern for performance
+_NORMALIZE_NAME_PATTERN = re.compile(r'[^a-z0-9]')
 
 
 def get_available_subtitles(url: str) -> dict[str, dict[str, Any]]:
@@ -260,8 +264,6 @@ def cleanup_leftover_subtitles(video_path: Path, title: str) -> None:
     Checks the directory of `video_path` for files with subtitle extensions
     that match the video's filename stem (ignoring trailing spaces, etc.).
     """
-    import re
-
     if not video_path:
         return
 
@@ -297,9 +299,9 @@ def cleanup_leftover_subtitles(video_path: Path, title: str) -> None:
             # If there's a space or dot, e.g. "video_title .en.srt" or "video_title.en.srt"
             # let's do a normalized comparison by stripping spaces and punctuation
             if not match:
-                norm_item = re.sub(r'[^a-z0-9]', '', item_name)
-                norm_video = re.sub(r'[^a-z0-9]', '', video_stem)
-                norm_title = re.sub(r'[^a-z0-9]', '', sanitized_title)
+                norm_item = _NORMALIZE_NAME_PATTERN.sub('', item_name)
+                norm_video = _NORMALIZE_NAME_PATTERN.sub('', video_stem)
+                norm_title = _NORMALIZE_NAME_PATTERN.sub('', sanitized_title)
 
                 # Subtitle files contain the language code, so they will be longer than the video stem.
                 # We check if the normalized item starts with the normalized video stem/title.

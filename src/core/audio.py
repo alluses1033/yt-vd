@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+import re
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,9 @@ from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
+
+# Precompile video ID extraction pattern globally for performance
+_VIDEO_ID_PATTERN = re.compile(r"(?:v=|\/)([a-zA-Z0-9_-]{11})")
 
 
 def extract_audio(
@@ -70,15 +74,21 @@ def extract_audio(
     output_path.mkdir(parents=True, exist_ok=True)
 
     progress_hook = kwargs.pop("progress_hook", None)
+    shutdown_event = kwargs.pop("shutdown_event", None)
 
     # Setup progress
     tracker = ProgressTracker()
-    if progress_callback:
-        tracker.add_callback(progress_callback)
+    
+    def wrapped_callback(info: ProgressInfo) -> None:
+        if shutdown_event and shutdown_event.is_set():
+            raise KeyboardInterrupt("Cancelled")
+        if progress_callback:
+            progress_callback(info)
+            
+    tracker.add_callback(wrapped_callback)
 
     # Extract video ID from URL or fallback
-    import re
-    match = re.search(r"(?:v=|\/)([a-zA-Z0-9_-]{11})", url)
+    match = _VIDEO_ID_PATTERN.search(url)
     video_id = match.group(1) if match else None
     if not video_id:
         import hashlib
@@ -128,6 +138,8 @@ def extract_audio(
     # Download with retry
     last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
+        if shutdown_event and shutdown_event.is_set():
+            raise KeyboardInterrupt("Cancelled")
         try:
             tracker.set_status(DownloadStatus.DOWNLOADING)
 
@@ -179,6 +191,11 @@ def extract_audio(
                 time.sleep(wait)
             else:
                 break
+        except KeyboardInterrupt:
+            logger.warning("Audio extraction interrupted by user.")
+            safety.cleanup_temp()
+            tracker.set_status(DownloadStatus.FAILED)
+            raise
         except Exception as e:
             last_error = e
             break

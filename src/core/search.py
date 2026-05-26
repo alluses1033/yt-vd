@@ -44,6 +44,13 @@ def search_youtube(
             "skip_download": True,
             "extract_flat": True,
             "ignoreerrors": True,
+            "check_formats": False,
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["dash", "hls"],
+                    "player_client": ["default"]
+                }
+            }
         })
         search_url = f"ytsearch{limit}:{query}"
         results = []
@@ -63,9 +70,15 @@ def search_youtube(
             "skip_download": True,
             "extract_flat": True,
             "ignoreerrors": True,
+            "check_formats": False,
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["dash", "hls"],
+                    "player_client": ["default"]
+                }
+            }
         })
-        encoded_query = urllib.parse.quote_plus(query)
-        search_url = f"https://www.youtube.com/results?search_query={encoded_query}&sp=EgIQAw%253D%253D"
+        search_url = f"ytsearchpl{limit}:{query}"
         results = []
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -113,12 +126,20 @@ def search_youtube(
         if is_playlist and not title.startswith("[Playlist]"):
             title = f"[Playlist] {title}"
 
-        # Parse thumbnail url
-        thumb = entry.get("thumbnail")
-        if not thumb and entry.get("thumbnails"):
+        # Parse thumbnail url: sort by resolution descending to get highest quality
+        thumb = None
+        if entry.get("thumbnails"):
             thumbs = entry.get("thumbnails")
             if isinstance(thumbs, list) and len(thumbs) > 0:
-                thumb = thumbs[-1].get("url")
+                def get_res(t: dict[str, Any]) -> int:
+                    w = t.get("width") or 0
+                    h = t.get("height") or 0
+                    return w * h
+                sorted_thumbs = sorted(thumbs, key=get_res, reverse=True)
+                if sorted_thumbs:
+                    thumb = sorted_thumbs[0].get("url")
+        if not thumb:
+            thumb = entry.get("thumbnail")
 
         # Parse duration
         dur_val = entry.get("duration")

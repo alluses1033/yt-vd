@@ -60,6 +60,21 @@ def get_video_info(url: str) -> VideoInfo:
     # Approximate file size (sum of best video + best audio)
     file_size_approx = _estimate_file_size(formats)
 
+    # Parse thumbnail url: sort by resolution descending to get highest quality
+    thumb = None
+    if info.get("thumbnails"):
+        thumbs = info.get("thumbnails")
+        if isinstance(thumbs, list) and len(thumbs) > 0:
+            def get_res(t: dict[str, Any]) -> int:
+                w = t.get("width") or 0
+                h = t.get("height") or 0
+                return w * h
+            sorted_thumbs = sorted(thumbs, key=get_res, reverse=True)
+            if sorted_thumbs:
+                thumb = sorted_thumbs[0].get("url")
+    if not thumb:
+        thumb = info.get("thumbnail", "")
+
     return VideoInfo(
         title=info.get("title", "Unknown"),
         url=info.get("webpage_url", url),
@@ -69,7 +84,7 @@ def get_video_info(url: str) -> VideoInfo:
         view_count=int(info.get("view_count") or 0),
         upload_date=info.get("upload_date", ""),
         description=info.get("description", ""),
-        thumbnail_url=info.get("thumbnail", ""),
+        thumbnail_url=thumb,
         formats=formats,
         available_qualities=available_qualities,
         chapters=chapters,

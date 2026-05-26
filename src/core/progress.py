@@ -132,7 +132,10 @@ class MultiTerminalProgress:
         self.titles = titles
         self.enabled = bool(getattr(console, "is_terminal", False))
         self._progress: Any | None = None
-        self._task_ids: list[Any] = []
+        self._overall_task_id: Any | None = None
+        self._active_tasks: dict[int, Any] = {}
+        self._finished_indices: set[int] = set()
+        self._lock = threading.Lock()
 
     def __enter__(self) -> Callable[[int, ProgressInfo], None]:
         if not self.enabled:
@@ -161,18 +164,17 @@ class MultiTerminalProgress:
         )
         self._progress.start()
 
-        # Pre-populate tasks for each entry
-        for i, title in enumerate(self.titles):
-            truncated_title = _truncate(title or f"Video {i+1}", 30)
-            task_id = self._progress.add_task(
-                f"[yellow]Queued[/]: {truncated_title}",
-                total=None,
-                percent="--",
-                size="queued",
-                speed="-- B/s",
-                eta="--:--",
-            )
-            self._task_ids.append(task_id)
+        # Add overall task progress bar
+        total = len(self.titles)
+        self._overall_task_id = self._progress.add_task(
+            f"[bold green]Overall Playlist Progress: 0/{total} done ({total} remaining)[/]",
+            total=total,
+            completed=0,
+            percent="0.0%",
+            size=f"0/{total} videos",
+            speed="",
+            eta="",
+        )
 
         return self.update
 
@@ -186,47 +188,90 @@ class MultiTerminalProgress:
             self._progress.stop()
 
     def update(self, idx: int, info: ProgressInfo) -> None:
-        if not self.enabled or self._progress is None or idx >= len(self._task_ids):
+        if not self.enabled or self._progress is None:
             return
 
-        task_id = self._task_ids[idx]
-        title = _truncate(info.title or self.titles[idx] or f"Video {idx+1}", 30)
-        description = f"{_status_label(info.status)}: {title}"
+        with self._lock:
+            total_videos = len(self.titles)
+            
+            # Check if this index is finished
+            is_finished = info.status in (
+                DownloadStatus.COMPLETED,
+                DownloadStatus.FAILED,
+                DownloadStatus.SKIPPED,
+            )
 
-        total: float | None
-        completed: float
-        if info.status == DownloadStatus.COMPLETED:
-            total = info.total_bytes or 100.0
-            completed = total
-            percent = "100.0%"
-        elif info.total_bytes > 0:
-            total = float(info.total_bytes)
-            completed = float(info.downloaded_bytes)
-            percent = f"{info.percent:5.1f}%"
-        elif info.percent > 0:
-            total = 100.0
-            completed = min(info.percent, 100.0)
-            percent = f"{info.percent:5.1f}%"
-        else:
-            total = None
-            completed = 0.0
-            percent = "--"
+            # Update overall progress if transition to finished
+            if is_finished and idx not in self._finished_indices:
+                self._finished_indices.add(idx)
+                done = len(self._finished_indices)
+                remain = total_videos - done
+                percent_str = f"{(done / total_videos) * 100:5.1f}%" if total_videos > 0 else "100.0%"
+                
+                self._progress.update(
+                    self._overall_task_id,
+                    description=f"[bold green]Playlist Progress: {done}/{total_videos} done ({remain} remaining)[/]",
+                    completed=done,
+                    percent=percent_str,
+                    size=f"{done}/{total_videos} videos",
+                )
 
-        if info.fragment_count:
-            size = f"frag {info.fragment_index}/{info.fragment_count}"
-        else:
-            size = info.size_str
+                # Remove from active tasks since it's done
+                if idx in self._active_tasks:
+                    self._progress.remove_task(self._active_tasks[idx])
+                    del self._active_tasks[idx]
+                return
 
-        self._progress.update(
-            task_id,
-            description=description,
-            completed=completed,
-            total=total,
-            percent=percent,
-            size=size,
-            speed=info.speed_str,
-            eta=info.eta_str,
-        )
+            # If not finished and status is DOWNLOADING or PROCESSING, manage active task
+            if not is_finished and info.status in (DownloadStatus.DOWNLOADING, DownloadStatus.PROCESSING):
+                # If not currently shown in active tasks, create it
+                if idx not in self._active_tasks:
+                    title = _truncate(info.title or self.titles[idx] or f"Video {idx+1}", 30)
+                    task_id = self._progress.add_task(
+                        f"{_status_label(info.status)}: {title}",
+                        total=None,
+                        percent="--",
+                        size="preparing...",
+                        speed="-- B/s",
+                        eta="--:--",
+                    )
+                    self._active_tasks[idx] = task_id
+                
+                # Now update the task
+                task_id = self._active_tasks[idx]
+                title = _truncate(info.title or self.titles[idx] or f"Video {idx+1}", 30)
+                description = f"{_status_label(info.status)}: {title}"
+
+                total: float | None
+                completed: float
+                if info.total_bytes > 0:
+                    total = float(info.total_bytes)
+                    completed = float(info.downloaded_bytes)
+                    percent = f"{info.percent:5.1f}%"
+                elif info.percent > 0:
+                    total = 100.0
+                    completed = min(info.percent, 100.0)
+                    percent = f"{info.percent:5.1f}%"
+                else:
+                    total = None
+                    completed = 0.0
+                    percent = "--"
+
+                if info.fragment_count:
+                    size = f"frag {info.fragment_index}/{info.fragment_count}"
+                else:
+                    size = info.size_str
+
+                self._progress.update(
+                    task_id,
+                    description=description,
+                    completed=completed,
+                    total=total,
+                    percent=percent,
+                    size=size,
+                    speed=info.speed_str,
+                    eta=info.eta_str,
+                )
 
 
 class ProgressTracker:
@@ -248,6 +293,7 @@ class ProgressTracker:
         "_start_time",
         "title",
         "video_id",
+        "_last_callback_time",
     )
 
     def __init__(
@@ -259,6 +305,7 @@ class ProgressTracker:
         self._callbacks: list[ProgressCallback] = []
         self._speed_samples: deque[float] = deque(maxlen=_SPEED_WINDOW_SIZE)
         self._start_time: float = time.monotonic()
+        self._last_callback_time: float = 0.0
         self.video_id = video_id
         self.title = title
         self._progress = ProgressInfo(
@@ -372,6 +419,18 @@ class ProgressTracker:
             # Ensure title / video_id stay in sync
             self._progress.video_id = self.video_id
             self._progress.title = self.title
+
+            # Throttle callbacks to 10 Hz (every 0.1 seconds), except for final statuses
+            current_time = time.monotonic()
+            is_final = self._progress.status in (
+                DownloadStatus.PROCESSING,
+                DownloadStatus.COMPLETED,
+                DownloadStatus.FAILED,
+            )
+            if not is_final and (current_time - self._last_callback_time < 0.1):
+                return
+
+            self._last_callback_time = current_time
 
             # Snapshot for callbacks (avoid holding the lock)
             snapshot = ProgressInfo(

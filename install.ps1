@@ -58,8 +58,9 @@ function Download-Asset {
 
     $Name = $Asset.name
     $Url = $Asset.browser_download_url
+    $Size = Format-Bytes -Bytes $Asset.size
 
-    Write-Host "Downloading $Name..." -ForegroundColor Cyan
+    Write-Host "Downloading $Name ($Size)..." -ForegroundColor Cyan
 
     Invoke-WebRequest `
         -Uri $Url `
