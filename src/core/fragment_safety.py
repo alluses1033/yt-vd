@@ -73,6 +73,12 @@ class SafeDownloadManager:
         """
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Hide the parent .yt-vd-temp folder on Windows
+        parent = self._temp_dir.parent
+        if parent.name == TEMP_DIR_NAME:
+            _hide_folder(parent)
+            
         return self._temp_dir
 
     def get_ydl_paths(self) -> dict[str, Any]:
@@ -138,6 +144,18 @@ class SafeDownloadManager:
 # Module-Level Functions
 # ──────────────────────────────────────────────
 
+def _hide_folder(path: Path) -> None:
+    """Set the hidden attribute on a folder (Windows only)."""
+    import os
+    if os.name == "nt":
+        import ctypes
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        try:
+            ctypes.windll.kernel32.SetFileAttributesW(str(path), FILE_ATTRIBUTE_HIDDEN)
+        except Exception:
+            pass
+
+
 def get_temp_path(output_dir: str | Path) -> Path:
     """Get or create the temp directory for a given output directory.
 
@@ -149,6 +167,7 @@ def get_temp_path(output_dir: str | Path) -> Path:
     """
     temp_path = Path(output_dir) / TEMP_DIR_NAME
     temp_path.mkdir(parents=True, exist_ok=True)
+    _hide_folder(temp_path)
     return temp_path
 
 

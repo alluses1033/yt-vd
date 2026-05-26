@@ -422,6 +422,11 @@ def download_video(
     result.elapsed_seconds = time.monotonic() - start_time
     tracker.set_status(DownloadStatus.FAILED)
     logger.error("Download failed for %s: %s", url, result.error_message)
+    
+    # Clean up temp directory even on failure so empty folders are removed
+    safety = SafeDownloadManager(output_path, video_id=video_id)
+    safety.cleanup_temp()
+    
     return result
 
 
@@ -486,9 +491,12 @@ def _is_retriable(error: Exception) -> bool:
         "http error 429",
         "too many requests",
         "temporary",
-        "unavailable",
+        "service unavailable",
+        "temporarily unavailable",
         "reset by peer",
         "broken pipe",
+        "winerror 32",
+        "being used by another process",
     )
     return any(kw in msg for kw in retriable_keywords)
 
