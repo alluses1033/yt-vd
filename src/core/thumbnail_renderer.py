@@ -1,7 +1,8 @@
-"""ANSI terminal image renderer for yt-vd.
+"""Terminal image renderer for yt-vd.
 
-Downloads YouTube thumbnails and converts them to 24-bit ANSI color escape
-sequences using unicode half-blocks for terminal rendering.
+Downloads YouTube thumbnails and converts them to terminal graphics using
+the best available protocol: Kitty, iTerm2/WezTerm, Sixel (Windows Terminal,
+foot, mlterm, mintty), or ANSI unicode half-blocks as a universal fallback.
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ class ControlSegment(Segment):
 class TerminalImage:
     """Rich renderable for terminal images.
     
-    Supports inline graphics protocols (Kitty, WezTerm/iTerm2) and fallbacks to
-    standard ANSI unicode half-block sequences.
+    Supports inline graphics protocols (Kitty, WezTerm/iTerm2, Sixel) and
+    fallbacks to standard ANSI unicode half-block sequences.
     """
     def __init__(self, raw_sequence: str, width: int, height: int, is_inline: bool = False):
         self.raw_sequence = raw_sequence
@@ -51,16 +52,36 @@ class TerminalImage:
 
 
 def get_terminal_protocol() -> str | None:
-    """Detect if the terminal program supports high-resolution graphics protocol."""
+    """Detect if the terminal supports a high-resolution graphics protocol.
+
+    Detection priority:
+      1. Kitty — native graphics protocol (highest fidelity, 24-bit)
+      2. iTerm2/WezTerm — iTerm2 inline image protocol (24-bit)
+      3. Sixel — Windows Terminal (WT_SESSION), foot, mlterm, mintty, xterm
+      4. None — falls back to ANSI half-block characters
+    """
     term = os.environ.get("TERM", "").lower()
     term_program = os.environ.get("TERM_PROGRAM", "").lower()
-    
+
+    # Kitty — native graphics protocol
     if "kitty" in term or "kitty" in term_program:
         return "kitty"
-    
+
+    # WezTerm / iTerm2 — iTerm2 inline image protocol
     if "wezterm" in term_program or "iterm" in term_program or "iterm2" in term_program:
         return "iterm2"
-        
+
+    # Sixel — Windows Terminal sets WT_SESSION unconditionally
+    # Modern Windows Terminal (default on Windows 11) supports Sixel natively
+    wt_session = os.environ.get("WT_SESSION", "")
+    if wt_session:
+        return "sixel"
+
+    # Sixel — other known Sixel-capable terminal emulators
+    sixel_terms = ("foot", "mlterm", "mintty", "xterm-256color")
+    if any(t in term for t in sixel_terms):
+        return "sixel"
+
     return None
 
 
@@ -71,11 +92,99 @@ def _image_to_base64_png(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _image_to_sixel(img: Image.Image) -> str:
+    """Convert a PIL Image to a Sixel escape sequence string.
+
+    Uses adaptive palette quantization (max 256 colors, Floyd-Steinberg
+    dithering) and encodes pixels into Sixel bands (6 vertical pixels
+    per band).
+
+    Args:
+        img: A PIL Image in RGB mode.
+
+    Returns:
+        A complete Sixel escape sequence (DCS ... ST) ready to print.
+    """
+    # Quantize to 256-color palette with dithering for best visual quality
+    quantized = img.quantize(
+        colors=256,
+        method=Image.Quantize.MEDIANCUT,
+        dither=Image.Dither.FLOYDSTEINBERG,
+    )
+    palette_data = quantized.getpalette()  # flat [R, G, B, R, G, B, ...] list
+    pixels = quantized.load()
+    width, height = quantized.size
+
+    parts: list[str] = []
+
+    # ── Sixel palette definitions: #idx;2;R%;G%;B% ──
+    # Sixel uses percentage values 0-100 for each RGB channel
+    num_colors = len(palette_data) // 3 if palette_data else 0
+    for i in range(num_colors):
+        r = int(palette_data[i * 3] / 255 * 100)
+        g = int(palette_data[i * 3 + 1] / 255 * 100)
+        b = int(palette_data[i * 3 + 2] / 255 * 100)
+        parts.append(f"#{i};2;{r};{g};{b}")
+
+    # ── Sixel pixel data in bands of 6 rows ──
+    # Each Sixel character encodes a column of 6 vertical pixels as a
+    # 6-bit value offset by 63 (ASCII '?'). Bits 0-5 map to rows 0-5
+    # within the band, top-to-bottom.
+    for band_y in range(0, height, 6):
+        # Collect which colors are used in this band and build their
+        # Sixel character arrays (one character per column)
+        color_runs: dict[int, list[int]] = {}
+        band_height = min(6, height - band_y)
+
+        for x in range(width):
+            for row in range(band_height):
+                y = band_y + row
+                color_idx = pixels[x, y]
+                if color_idx not in color_runs:
+                    # Initialize all columns to sixel value 0 (char '?')
+                    color_runs[color_idx] = [0] * width
+                # Set the bit for this row within the sixel character
+                color_runs[color_idx][x] |= (1 << row)
+
+        # Emit each color's scanline for this band
+        first_color = True
+        for color_idx, col_bits in sorted(color_runs.items()):
+            if not first_color:
+                parts.append("$")  # Sixel carriage return (rewind to band start)
+            first_color = False
+            parts.append(f"#{color_idx}")
+
+            # Convert bit values to Sixel characters and apply RLE compression
+            chars: list[str] = []
+            i = 0
+            while i < width:
+                ch = chr(col_bits[i] + 63)
+                # Count consecutive identical characters for RLE
+                run_len = 1
+                while i + run_len < width and col_bits[i + run_len] == col_bits[i]:
+                    run_len += 1
+                if run_len >= 4:
+                    # Sixel RLE: !<count><char>
+                    chars.append(f"!{run_len}{ch}")
+                else:
+                    chars.append(ch * run_len)
+                i += run_len
+            parts.append("".join(chars))
+
+        parts.append("-")  # Sixel line feed (advance to next band)
+
+    sixel_data = "".join(parts)
+
+    # Wrap in DCS (Device Control String): ESC P <params> q <data> ESC \
+    # Parameters: P1=0 (normal aspect), P2=0 (no background), P3=0 (horizontal grid)
+    return f"\033P0;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
+
+
 def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalImage | None:
     """Download thumbnail from URL and render it as a TerminalImage.
 
-    Resizes the image and uses Kitty/WezTerm inline graphics or falls back to
-    half-block characters (upper/lower pixels per char) to achieve vertical resolution.
+    Resizes the image and uses the best available graphics protocol:
+    Kitty, iTerm2/WezTerm, Sixel, or ANSI half-block fallback.
     Cleans up temporary files immediately.
 
     Args:
@@ -115,20 +224,38 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
             # Detect terminal protocol
             protocol = get_terminal_protocol()
             
-            if protocol:
-                # Target pixel resolution based on typical font size (8x16) for crisp rendering
+            if protocol == "kitty":
+                # Kitty native graphics protocol — highest fidelity (24-bit PNG)
                 pixel_width = width * 8
                 pixel_height = height * 16
                 resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
                 
                 base64_data = _image_to_base64_png(resized_img)
-                
-                if protocol == "kitty":
-                    escape_seq = f"\033_Ga=T,f=100,c={width},r={height},C=1;{base64_data}\033\\"
-                else: # iterm2 (WezTerm, iTerm2, etc.)
-                    escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1;doNotMoveCursor=1:{base64_data}\a"
+                escape_seq = f"\033_Ga=T,f=100,c={width},r={height},C=1;{base64_data}\033\\"
                 
                 return TerminalImage(escape_seq, width, height, is_inline=True)
+
+            if protocol == "iterm2":
+                # iTerm2 / WezTerm inline image protocol (24-bit PNG)
+                pixel_width = width * 8
+                pixel_height = height * 16
+                resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
+                
+                base64_data = _image_to_base64_png(resized_img)
+                escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1;doNotMoveCursor=1:{base64_data}\a"
+                
+                return TerminalImage(escape_seq, width, height, is_inline=True)
+
+            if protocol == "sixel":
+                # Sixel graphics — 256-color adaptive palette with dithering
+                # Supported by Windows Terminal (Win 11+), foot, mlterm, mintty, xterm
+                pixel_width = width * 8
+                pixel_height = height * 16
+                resized_img = rgb_img.resize(
+                    (pixel_width, pixel_height), Image.Resampling.LANCZOS
+                )
+                sixel_seq = _image_to_sixel(resized_img)
+                return TerminalImage(sixel_seq, width, height, is_inline=True)
 
             # Fallback: ANSI Unicode half-block characters
             # We need height * 2 because each char cell represents 2 vertical pixels

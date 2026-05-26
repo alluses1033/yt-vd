@@ -40,6 +40,7 @@ cli_analysis = Analysis(
         "core.metadata",
         "core.search",
         "core.history",
+        "core.thumbnail_renderer",
     ],
     hookspath=[],
     hooksconfig={},
