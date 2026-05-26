@@ -31,8 +31,9 @@ class TerminalImage:
 
     def __rich_console__(self, console, options):
         if self.is_inline:
-            # We yield the raw escape sequence with control=[("IMAGE",)] so that Rich measures it as zero cell width!
-            yield Segment(self.raw_sequence, control=[("IMAGE",)])
+            # We yield the raw escape sequence wrapped in VT100 save/restore cursor codes
+            # and with control=[("IMAGE",)] so that Rich measures it as zero cell width!
+            yield Segment(f"\0337{self.raw_sequence}\0338", control=[("IMAGE",)])
             # We then yield height newlines to reserve the vertical space.
             for i in range(self.height):
                 yield Segment("\n" if i < self.height - 1 else "")
@@ -116,9 +117,9 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
                 base64_data = _image_to_base64_png(resized_img)
                 
                 if protocol == "kitty":
-                    escape_seq = f"\033_Ga=T,f=100,c={width},r={height};{base64_data}\033\\"
+                    escape_seq = f"\033_Ga=T,f=100,c={width},r={height},C=1;{base64_data}\033\\"
                 else: # iterm2 (WezTerm, iTerm2, etc.)
-                    escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1:{base64_data}\a"
+                    escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1;doNotMoveCursor=1:{base64_data}\a"
                 
                 return TerminalImage(escape_seq, width, height, is_inline=True)
 
