@@ -17,6 +17,13 @@ from PIL import Image
 from rich.segment import Segment
 
 
+class ControlSegment(Segment):
+    """Segment with cell length of zero, used to output raw escape sequences."""
+    @property
+    def cell_length(self) -> int:
+        return 0
+
+
 class TerminalImage:
     """Rich renderable for terminal images.
     
@@ -32,8 +39,8 @@ class TerminalImage:
     def __rich_console__(self, console, options):
         if self.is_inline:
             # We yield the raw escape sequence wrapped in VT100 save/restore cursor codes
-            # and with control=[("IMAGE",)] so that Rich measures it as zero cell width!
-            yield Segment(f"\0337{self.raw_sequence}\0338", control=[("IMAGE",)])
+            # using ControlSegment so that Rich prints it but measures it as zero cell width!
+            yield ControlSegment(f"\0337{self.raw_sequence}\0338")
             # We then yield height newlines to reserve the vertical space.
             for i in range(self.height):
                 yield Segment("\n" if i < self.height - 1 else "")
