@@ -788,8 +788,9 @@ def run_interactive() -> None:
         ).ask()
 
         if choice is None or choice == "exit":
+            import os
             console.print("\n[bold magenta]Goodbye![/]\n")
-            sys.exit(0)
+            os._exit(0)
 
         action = ACTIONS.get(choice)
         if action:
