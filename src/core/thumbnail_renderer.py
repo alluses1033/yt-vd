@@ -31,15 +31,15 @@ class TerminalImage:
 
     def __rich_console__(self, console, options):
         if self.is_inline:
-            # For inline graphics, output escape code, then reserve height - 1 lines
-            yield Segment(self.raw_sequence + "\n")
-            for i in range(self.height - 1):
-                yield Segment("\n" if i < self.height - 2 else "")
+            # We yield the raw escape sequence with control=[("IMAGE",)] so that Rich measures it as zero cell width!
+            yield Segment(self.raw_sequence, control=[("IMAGE",)])
+            # We then yield height newlines to reserve the vertical space.
+            for i in range(self.height):
+                yield Segment("\n" if i < self.height - 1 else "")
         else:
-            # Yield ANSI SGR lines directly as segments
-            lines = self.raw_sequence.split("\n")
-            for i, line in enumerate(lines):
-                yield Segment(line + ("\n" if i < len(lines) - 1 else ""))
+            # For fallback ANSI blocks, we delegate to Text.from_ansi, which parses them and handles layout perfectly!
+            from rich.text import Text
+            yield from Text.from_ansi(self.raw_sequence).__rich_console__(console, options)
 
 
 def get_terminal_protocol() -> str | None:
