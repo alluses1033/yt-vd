@@ -7,6 +7,7 @@ returning results as ``VideoInfo`` dataclass instances.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -17,6 +18,22 @@ from constants import VideoInfo
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
+
+# Precompile video ID extraction pattern globally for performance
+_VIDEO_ID_PATTERN = re.compile(r"(?:v=|\/)([a-zA-Z0-9_-]{11})")
+
+
+def _clean_thumbnail_url(url: str) -> str:
+    if not url:
+        return ""
+    # YouTube thumbnails optimization to get highest resolution
+    if "i.ytimg.com" in url or "img.youtube.com" in url:
+        for name in ("default", "mqdefault", "sddefault", "maxresdefault"):
+            if f"/{name}.jpg" in url:
+                return url.replace(f"/{name}.jpg", "/hqdefault.jpg")
+            elif f"/{name}.webp" in url:
+                return url.replace(f"/{name}.webp", "/hqdefault.jpg")
+    return url
 
 
 def search_youtube(
@@ -78,7 +95,8 @@ def search_youtube(
                 }
             }
         })
-        search_url = f"ytsearchpl{limit}:{query}"
+        encoded_query = urllib.parse.quote_plus(query)
+        search_url = f"https://www.youtube.com/results?search_query={encoded_query}&sp=EgIQAw%253D%253D"
         results = []
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -140,6 +158,9 @@ def search_youtube(
                     thumb = sorted_thumbs[0].get("url")
         if not thumb:
             thumb = entry.get("thumbnail")
+
+        # Clean thumbnail URL to ensure it is hqdefault if it's YouTube
+        thumb = _clean_thumbnail_url(thumb or "")
 
         # Parse duration
         dur_val = entry.get("duration")

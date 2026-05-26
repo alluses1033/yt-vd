@@ -75,6 +75,17 @@ def get_video_info(url: str) -> VideoInfo:
     if not thumb:
         thumb = info.get("thumbnail", "")
 
+    # Clean thumbnail URL to ensure it is hqdefault if it's YouTube
+    if thumb:
+        if "i.ytimg.com" in thumb or "img.youtube.com" in thumb:
+            for name in ("default", "mqdefault", "sddefault", "maxresdefault"):
+                if f"/{name}.jpg" in thumb:
+                    thumb = thumb.replace(f"/{name}.jpg", "/hqdefault.jpg")
+                    break
+                elif f"/{name}.webp" in thumb:
+                    thumb = thumb.replace(f"/{name}.webp", "/hqdefault.jpg")
+                    break
+
     return VideoInfo(
         title=info.get("title", "Unknown"),
         url=info.get("webpage_url", url),
