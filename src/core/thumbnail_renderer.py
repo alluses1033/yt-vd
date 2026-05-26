@@ -39,12 +39,23 @@ class TerminalImage:
 
     def __rich_console__(self, console, options):
         if self.is_inline:
-            # We yield the raw escape sequence wrapped in VT100 save/restore cursor codes
-            # using ControlSegment so that Rich prints it but measures it as zero cell width!
-            yield ControlSegment(f"\0337{self.raw_sequence}\0338")
-            # We then yield height newlines to reserve the vertical space.
-            for i in range(self.height):
-                yield Segment("\n" if i < self.height - 1 else "")
+            # Yield empty lines to reserve space for the image in the table
+            for i in range(self.height - 1):
+                yield Segment(" " * self.width)
+                yield Segment("\n")
+            
+            # On the last line, yield spaces, then the image sequence
+            yield Segment(" " * self.width)
+            
+            # Now the cursor is at the bottom-right of the cell.
+            # We want to move to the top-left of the cell to draw the image.
+            # This ensures the image is drawn *after* Rich prints the spaces,
+            # so the spaces don't overwrite the image pixels (critical for Sixel).
+            move_up = f"\033[{self.height - 1}A" if self.height > 1 else ""
+            move_left = f"\033[{self.width}D" if self.width > 0 else ""
+            
+            # We wrap the sequence in VT100 save/restore cursor codes
+            yield ControlSegment(f"\0337{move_left}{move_up}{self.raw_sequence}\0338")
         else:
             # For fallback ANSI blocks, we delegate to Text.from_ansi, which parses them and handles layout perfectly!
             from rich.text import Text
