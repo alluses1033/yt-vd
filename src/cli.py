@@ -645,7 +645,7 @@ def search(
             expand=True,
         )
         table.add_column("#", style="dim", width=4, justify="right")
-        table.add_column("Thumbnail", width=32, justify="center")
+        table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
         table.add_column("Title", style="bold white", ratio=3)
         table.add_column("Channel", style="green", ratio=1)
         table.add_column("Duration", justify="center", width=10)
@@ -659,8 +659,8 @@ def search(
             views_str = f"{views:,}" if views else "N/A"
             entry_url = entry.url or "N/A"
 
-            thumb_ansi = ansi_thumbnails.get(entry_url, "")
-            thumb_render = Text.from_ansi(thumb_ansi) if thumb_ansi else Text("No Image", style="dim")
+            thumb_ansi = ansi_thumbnails.get(entry_url)
+            thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
 
             table.add_row(
                 str(i),
@@ -702,9 +702,9 @@ def search(
                     if selected.thumbnail_url and is_term:
                         from core.thumbnail_renderer import get_ansi_thumbnail
                         with console.status("[cyan]Loading preview...[/]"):
-                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 56, 18)
+                            large_ansi = get_ansi_thumbnail(selected.thumbnail_url, 72, 22)
                         if large_ansi:
-                            console.print(Panel(Text.from_ansi(large_ansi), title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
+                            console.print(Panel(large_ansi, title="[cyan]Video Preview[/]", border_style="cyan", expand=False))
                             console.print("[dim]Terminal thumbnails are low-resolution. Use title, channel, duration, and views to confirm your selection.[/]")
 
                     is_playlist = "[Playlist]" in selected.title or "playlist" in sel_url
