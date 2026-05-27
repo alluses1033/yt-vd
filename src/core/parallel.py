@@ -135,7 +135,13 @@ def download_parallel(
     Returns:
         List of DownloadResult objects.
     """
-    results: list[DownloadResult] = [DownloadResult(url="") for _ in entries]
+    # Pre-allocate with correct URLs so failures have useful metadata
+    results: list[DownloadResult] = [
+        DownloadResult(
+            url=entry.get("url") or entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}"
+        )
+        for entry in entries
+    ]
     if not entries:
         return []
 
@@ -195,7 +201,7 @@ def download_parallel(
             except Exception as e:
                 logger.error("Worker error downloading index %d: %s", idx, e)
                 results[idx] = DownloadResult(
-                    url="",
+                    url=results[idx].url,
                     status=DownloadStatus.FAILED,
                     error_message=str(e),
                 )

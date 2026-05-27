@@ -18,11 +18,6 @@ from constants import (
 
 logger = logging.getLogger(__name__)
 
-# All known resolution heights in descending order
-_KNOWN_HEIGHTS: tuple[int, ...] = (2160, 1440, 1080, 720, 480, 360, 240, 144)
-
-
-
 
 def normalize_quality(quality: Any) -> str:
     """Normalize quality to a lowercase string value.

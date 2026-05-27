@@ -43,7 +43,7 @@ def get_playlist_info(url: str) -> PlaylistInfo | None:
         )
     except Exception as e:
         logger.error("Failed to fetch playlist info for %s: %s", url, e)
-        raise e
+        raise
 
 
 

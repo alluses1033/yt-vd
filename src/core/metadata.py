@@ -19,7 +19,6 @@ from constants import (
 )
 from core.downloader import build_ydl_opts, extract_info
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
-from core.utils import format_duration, format_file_size
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
@@ -102,44 +101,6 @@ def get_video_info(url: str) -> VideoInfo:
         subtitles=info.get("subtitles") or {},
         file_size_approx=file_size_approx,
     )
-
-
-def display_video_info(info: VideoInfo) -> dict[str, str]:
-    """Prepare video info for display.
-
-    Returns a flat dictionary of formatted strings suitable for
-    presentation in either CLI or GUI contexts.  This function is
-    format-agnostic — Rich/Tkinter formatting is the consumer's job.
-
-    Args:
-        info: A ``VideoInfo`` instance.
-
-    Returns:
-        A dict with human-readable keys and formatted string values.
-    """
-    upload_date_str = ""
-    if info.upload_date:
-        try:
-            # yt-dlp date format: YYYYMMDD
-            upload_date_str = (
-                f"{info.upload_date[:4]}-{info.upload_date[4:6]}-{info.upload_date[6:8]}"
-            )
-        except (IndexError, TypeError):
-            upload_date_str = info.upload_date
-
-    return {
-        "Title": info.title,
-        "URL": info.url,
-        "Video ID": info.video_id,
-        "Uploader": info.uploader,
-        "Duration": format_duration(info.duration),
-        "Views": f"{info.view_count:,}",
-        "Upload Date": upload_date_str,
-        "Qualities": ", ".join(info.available_qualities) if info.available_qualities else "N/A",
-        "Chapters": str(len(info.chapters)) if info.chapters else "None",
-        "Subtitles": ", ".join(info.subtitles.keys()) if info.subtitles else "None",
-        "File Size (est.)": format_file_size(info.file_size_approx),
-    }
 
 
 # ──────────────────────────────────────────────
@@ -332,43 +293,6 @@ def download_by_chapters(
         results.append(result)
 
     return results
-
-
-# ──────────────────────────────────────────────
-# SponsorBlock Options
-# ──────────────────────────────────────────────
-
-def build_sponsorblock_opts(remove: bool = True) -> dict[str, Any]:
-    """Build yt-dlp options for SponsorBlock integration.
-
-    Args:
-        remove: If True, remove sponsor segments from the video.
-                If False, only mark them as chapters.
-
-    Returns:
-        A dict of yt-dlp postprocessor options.
-    """
-    categories = ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview"]
-
-    postprocessors: list[dict[str, Any]] = [
-        {
-            "key": "SponsorBlock",
-            "categories": categories,
-        }
-    ]
-
-    if remove:
-        postprocessors.append({
-            "key": "ModifyChapters",
-            "remove_sponsor_segments": ["sponsor"],
-        })
-    else:
-        postprocessors.append({
-            "key": "ModifyChapters",
-            "remove_sponsor_segments": [],  # mark only
-        })
-
-    return {"postprocessors": postprocessors}
 
 
 # ──────────────────────────────────────────────

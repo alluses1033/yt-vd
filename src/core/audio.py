@@ -7,32 +7,29 @@ with support for format selection, bitrate control, and metadata embedding.
 from __future__ import annotations
 
 import logging
-import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yt_dlp
 
 from constants import (
     AUDIO_BITRATE_MAP,
     MAX_RETRIES,
-    RETRY_BACKOFF_FACTOR,
     SINGLE_VIDEO_TEMPLATE,
     SOCKET_TIMEOUT,
+    VIDEO_ID_PATTERN,
     AudioBitrate,
     AudioFormat,
     DownloadResult,
     DownloadStatus,
+    ProgressInfo,
 )
 from core.fragment_safety import SafeDownloadManager, verify_file_integrity
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
-
-# Precompile video ID extraction pattern globally for performance
-_VIDEO_ID_PATTERN = re.compile(r"(?:v=|\/)([a-zA-Z0-9_-]{11})")
 
 
 def extract_audio(
@@ -76,6 +73,11 @@ def extract_audio(
     progress_hook = kwargs.pop("progress_hook", None)
     shutdown_event = kwargs.pop("shutdown_event", None)
 
+    # Validate URL
+    from core.utils import validate_url
+    if not validate_url(url):
+        logger.warning("URL does not appear to be a YouTube URL: %s", url)
+
     # Setup progress
     tracker = ProgressTracker()
 
@@ -88,7 +90,7 @@ def extract_audio(
     tracker.add_callback(wrapped_callback)
 
     # Extract video ID from URL or fallback
-    match = _VIDEO_ID_PATTERN.search(url)
+    match = VIDEO_ID_PATTERN.search(url)
     video_id = match.group(1) if match else None
     if not video_id:
         import hashlib
@@ -136,76 +138,63 @@ def extract_audio(
     opts.update(safety.get_ydl_paths())
 
     # Download with retry
-    last_error: Exception | None = None
-    for attempt in range(1, max_retries + 1):
-        if shutdown_event and shutdown_event.is_set():
-            raise KeyboardInterrupt("Cancelled")
-        try:
-            tracker.set_status(DownloadStatus.DOWNLOADING)
+    def _do_download() -> dict[str, Any]:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+        if info is None:
+            raise yt_dlp.utils.DownloadError("Audio extraction returned no info")
+        return cast(dict[str, Any], info)
 
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+    try:
+        from core.retry import retry_operation
+        info = retry_operation(
+            _do_download,
+            max_retries=max_retries,
+            shutdown_event=shutdown_event,
+            tracker=tracker,
+            safety=safety,
+            label="Audio extraction",
+        )
 
-            if info is None:
-                raise yt_dlp.utils.DownloadError("Audio extraction returned no info")
+        result.title = info.get("title", "")
+        result.duration = float(info.get("duration") or 0.0)
+        result.quality = bitrate
+        result.format = audio_format
+        tracker.title = result.title
+        tracker.video_id = str(info.get("id") or "")
 
-            result.title = info.get("title", "")
-            result.duration = float(info.get("duration") or 0.0)
-            result.quality = bitrate
-            result.format = audio_format
-            tracker.title = result.title
-            tracker.video_id = str(info.get("id") or "")
-
-            # Find downloaded file
-            final_path = _find_audio_file(info, output_path, audio_format)
-            if final_path and final_path.exists():
-                if verify_file_integrity(final_path):
-                    result.file_path = final_path
-                    result.file_size = final_path.stat().st_size
-                else:
-                    result.file_path = final_path
-                    result.file_size = final_path.stat().st_size
-
-            result.status = DownloadStatus.COMPLETED
-            result.elapsed_seconds = time.monotonic() - start_time
-            tracker.set_status(DownloadStatus.COMPLETED)
-
-            # Add to history database
-            try:
-                from core.history import add_to_history
-                add_to_history(result)
-            except Exception as e:
-                logger.debug("Failed to write download history: %s", e)
-
-            safety.cleanup_temp()
-            return result
-
-        except yt_dlp.utils.DownloadError as e:
-            last_error = e
-            if attempt < max_retries:
-                wait = RETRY_BACKOFF_FACTOR ** attempt
-                logger.warning(
-                    "Audio extraction attempt %d/%d failed: %s — retrying in %.0fs",
-                    attempt, max_retries, e, wait,
-                )
-                time.sleep(wait)
+        # Find downloaded file
+        final_path = _find_audio_file(info, output_path, audio_format)
+        if final_path and final_path.exists():
+            if verify_file_integrity(final_path):
+                result.file_path = final_path
+                result.file_size = final_path.stat().st_size
             else:
-                break
-        except KeyboardInterrupt:
-            logger.warning("Audio extraction interrupted by user.")
-            safety.cleanup_temp()
-            tracker.set_status(DownloadStatus.FAILED)
-            raise
-        except Exception as e:
-            last_error = e
-            break
+                result.file_path = final_path
+                result.file_size = final_path.stat().st_size
 
-    result.status = DownloadStatus.FAILED
-    result.error_message = str(last_error) if last_error else "Unknown error"
-    result.elapsed_seconds = time.monotonic() - start_time
-    tracker.set_status(DownloadStatus.FAILED)
-    logger.error("Audio extraction failed for %s: %s", url, result.error_message)
-    return result
+        result.status = DownloadStatus.COMPLETED
+        result.elapsed_seconds = time.monotonic() - start_time
+        tracker.set_status(DownloadStatus.COMPLETED)
+
+        # Add to history database
+        try:
+            from core.history import add_to_history
+            add_to_history(result)
+        except Exception as e:
+            logger.debug("Failed to write download history: %s", e)
+
+        safety.cleanup_temp()
+        return result
+
+    except Exception as e:
+        result.status = DownloadStatus.FAILED
+        result.error_message = str(e)
+        result.elapsed_seconds = time.monotonic() - start_time
+        tracker.set_status(DownloadStatus.FAILED)
+        logger.error("Audio extraction failed for %s: %s", url, result.error_message)
+        safety.cleanup_temp()
+        return result
 
 
 def get_audio_info(url: str) -> dict[str, Any]:
@@ -293,6 +282,4 @@ def _find_audio_file(
 
     return None
 
-
-download_audio = extract_audio
 

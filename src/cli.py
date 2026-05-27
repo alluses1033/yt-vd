@@ -8,19 +8,19 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from __init__ import __version__
 from constants import (
     DEFAULT_PARALLEL_WORKERS,
-    DownloadResult,
     DownloadStatus,
 )
+from core.display import console, show_result_panel, show_summary_table
+from core.utils import format_duration, format_file_size
 
 # ── Typer app ────────────────────────────────────────────────────────────────
 
@@ -39,8 +39,6 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
-console = Console()
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -48,101 +46,6 @@ def _version_callback(value: bool) -> None:
     if value:
         console.print(f"[bold magenta]yt-vd[/] version [cyan]{__version__}[/]")
         raise typer.Exit()
-
-
-def _format_size(b: int) -> str:
-    """Return a human-readable file size."""
-    if b <= 0:
-        return "N/A"
-    if b >= 1e9:
-        return f"{b / 1e9:.1f} GB"
-    if b >= 1e6:
-        return f"{b / 1e6:.1f} MB"
-    if b >= 1e3:
-        return f"{b / 1e3:.1f} KB"
-    return f"{b} B"
-
-
-def _format_duration(seconds: float) -> str:
-    """Return MM:SS or HH:MM:SS string."""
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-
-
-def _show_result_panel(result: DownloadResult) -> None:
-    """Display a Rich panel for a single download result."""
-    if result.status == DownloadStatus.COMPLETED:
-        style = "green"
-    elif result.status == DownloadStatus.FAILED:
-        style = "red"
-    else:
-        style = "yellow"
-
-    size = _format_size(result.file_size)
-    elapsed = f"{result.elapsed_seconds:.1f}s" if result.elapsed_seconds else "N/A"
-
-    body = (
-        f"[bold]{result.title or result.url}[/]\n\n"
-        f"  [bold]Status:[/]  [{style}]{result.status.value}[/{style}]\n"
-        f"  [bold]Quality:[/] {result.quality or 'N/A'}\n"
-        f"  [bold]Size:[/]    {size}\n"
-        f"  [bold]Time:[/]    {elapsed}\n"
-        f"  [bold]File:[/]    {result.file_path or 'N/A'}"
-    )
-    if result.error_message:
-        body += f"\n  [bold red]Error:[/]  {result.error_message}"
-
-    console.print(Panel(body, title=f"[bold {style}]Download Result[/]", border_style=style))
-
-
-def _show_summary_table(results: list[DownloadResult]) -> None:
-    """Display a Rich table summarising multiple downloads."""
-    table = Table(
-        title="Download Summary",
-        show_header=True,
-        header_style="bold cyan",
-        border_style="cyan",
-        expand=True,
-    )
-    table.add_column("#", style="dim", width=4, justify="right")
-    table.add_column("Filename", style="bold white", ratio=3)
-    table.add_column("Quality", justify="center", width=10)
-    table.add_column("Size", justify="right", width=10)
-    table.add_column("Status", justify="center", width=12)
-    table.add_column("Time", justify="right", width=8)
-
-    for i, r in enumerate(results, 1):
-        s_style = {
-            DownloadStatus.COMPLETED: "green",
-            DownloadStatus.FAILED: "red",
-            DownloadStatus.SKIPPED: "yellow",
-        }.get(r.status, "white")
-
-        filename = Path(r.file_path).name if r.file_path else (r.title or r.url[:40])
-        table.add_row(
-            str(i),
-            filename,
-            r.quality or "N/A",
-            _format_size(r.file_size),
-            f"[{s_style}]{r.status.value}[/{s_style}]",
-            f"{r.elapsed_seconds:.1f}s" if r.elapsed_seconds else "N/A",
-        )
-
-    console.print()
-    console.print(table)
-
-    ok = sum(1 for r in results if r.status == DownloadStatus.COMPLETED)
-    fail = sum(1 for r in results if r.status == DownloadStatus.FAILED)
-    skip = sum(1 for r in results if r.status == DownloadStatus.SKIPPED)
-    total_bytes = sum(r.file_size for r in results if r.file_size)
-
-    console.print(
-        f"\n  [green]{ok} completed[/]  "
-        f"[red]{fail} failed[/]  "
-        f"[yellow]{skip} skipped[/]  "
-        f"[cyan]{_format_size(total_bytes)} total[/]\n"
-    )
 
 
 # ── Default callback → interactive mode ──────────────────────────────────────
@@ -179,7 +82,9 @@ def _main_callback(
         "  yt-vd download \"https://youtube.com/watch?v=ID\"\n\n"
         "  yt-vd download \"URL\" -q high -f mkv\n\n"
         "  yt-vd download \"URL\" -q medium -o ./videos --subtitles\n\n"
-        "  yt-vd download \"URL\" --sponsorblock --thumbnail\n"
+        "  yt-vd download \"URL\" --sponsorblock --thumbnail\n\n"
+        "  yt-vd download \"URL\" --aria2c --rate-limit 5M\n\n"
+        "  yt-vd download \"URL\" --cookies-from-browser chrome\n"
     ),
 )
 def download(
@@ -205,11 +110,49 @@ def download(
     sponsorblock: Annotated[
         bool, typer.Option("--sponsorblock", help="Remove sponsor segments via SponsorBlock.")
     ] = False,
+    aria2c: Annotated[
+        bool, typer.Option("--aria2c", help="Use aria2c for faster multi-connection downloads (requires aria2c on PATH).")
+    ] = False,
+    cookies_from_browser: Annotated[
+        str | None, typer.Option("--cookies-from-browser", help="Import cookies from browser (chrome, firefox, edge, safari).")
+    ] = None,
+    cookies_file: Annotated[
+        str | None, typer.Option("--cookies-file", help="Path to Netscape-format cookies file.")
+    ] = None,
+    rate_limit: Annotated[
+        str | None, typer.Option("--rate-limit", "-r", help="Max download speed (e.g. 5M, 500K).")
+    ] = None,
+    proxy: Annotated[
+        str | None, typer.Option("--proxy", help="Proxy URL (e.g. socks5://127.0.0.1:1080).")
+    ] = None,
+    skip_downloaded: Annotated[
+        bool, typer.Option("--skip-downloaded", help="Skip URLs already in download history.")
+    ] = False,
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Enable verbose/debug output.")
     ] = False,
 ) -> None:
     """Download a single YouTube video."""
+    import click
+
+    from core.config import ConfigManager
+
+    config = ConfigManager().load()
+    ctx = click.get_current_context()
+
+    if ctx.get_parameter_source("quality") == click.core.ParameterSource.DEFAULT:
+        quality = config.quality
+    if ctx.get_parameter_source("fmt") == click.core.ParameterSource.DEFAULT:
+        fmt = config.format
+    if ctx.get_parameter_source("output") == click.core.ParameterSource.DEFAULT:
+        output = config.output_dir
+    if ctx.get_parameter_source("sub_lang") == click.core.ParameterSource.DEFAULT:
+        sub_lang = config.subtitle_lang
+    if ctx.get_parameter_source("thumbnail") == click.core.ParameterSource.DEFAULT:
+        thumbnail = config.embed_thumbnail
+    if ctx.get_parameter_source("sponsorblock") == click.core.ParameterSource.DEFAULT:
+        sponsorblock = config.sponsorblock
+
     console.print(
         Panel(
             f"[bold]URL:[/] {url}\n"
@@ -235,9 +178,15 @@ def download(
             sponsorblock=sponsorblock,
             progress_callback=progress_callback,
             verbose=verbose,
+            use_aria2c=aria2c,
+            cookies_from_browser=cookies_from_browser,
+            cookies_file=cookies_file,
+            rate_limit=rate_limit,
+            proxy=proxy,
+            skip_downloaded=skip_downloaded,
         )
 
-    _show_result_panel(result)
+    show_result_panel(result)
 
     if result.status == DownloadStatus.FAILED:
         raise typer.Exit(code=1)
@@ -317,7 +266,7 @@ def playlist(
             info_table.add_row("Uploader", info.uploader)
             info_table.add_row("Videos", str(info.video_count))
             if info.total_duration:
-                info_table.add_row("Total Duration", _format_duration(info.total_duration))
+                info_table.add_row("Total Duration", format_duration(info.total_duration))
             console.print(info_table)
             console.print()
     except Exception:
@@ -349,7 +298,7 @@ def playlist(
             on_progress=progress_callback,
         )
 
-    _show_summary_table(results)
+    show_summary_table(results)
 
     if any(r.status == DownloadStatus.FAILED for r in results):
         raise typer.Exit(code=1)
@@ -386,6 +335,22 @@ def audio(
     ] = False,
 ) -> None:
     """Extract audio from a YouTube video."""
+    import click
+
+    from core.config import ConfigManager
+
+    config = ConfigManager().load()
+    ctx = click.get_current_context()
+
+    if ctx.get_parameter_source("fmt") == click.core.ParameterSource.DEFAULT:
+        fmt = config.audio_format
+    if ctx.get_parameter_source("bitrate") == click.core.ParameterSource.DEFAULT:
+        bitrate = config.audio_bitrate
+    if ctx.get_parameter_source("output") == click.core.ParameterSource.DEFAULT:
+        output = config.output_dir
+    if ctx.get_parameter_source("thumbnail") == click.core.ParameterSource.DEFAULT:
+        thumbnail = config.embed_thumbnail
+
     console.print(
         Panel(
             f"[bold]URL:[/] {url}\n"
@@ -410,7 +375,7 @@ def audio(
             verbose=verbose,
         )
 
-    _show_result_panel(result)
+    show_result_panel(result)
 
     if result.status == DownloadStatus.FAILED:
         raise typer.Exit(code=1)
@@ -483,7 +448,7 @@ def channel(
             on_progress=progress_callback,
         )
 
-    _show_summary_table(results)
+    show_summary_table(results)
 
     if any(r.status == DownloadStatus.FAILED for r in results):
         raise typer.Exit(code=1)
@@ -558,7 +523,7 @@ def batch(
         verbose=verbose,
     )
 
-    _show_summary_table(results)
+    show_summary_table(results)
 
     if any(r.status == DownloadStatus.FAILED for r in results):
         raise typer.Exit(code=1)
@@ -633,7 +598,7 @@ def search(
                         try:
                             ansi_thumbnails[entry.url] = future.result()
                         except Exception:
-                            ansi_thumbnails[entry.url] = ""
+                            ansi_thumbnails[entry.url] = None
 
         from rich.text import Text
 
@@ -654,7 +619,7 @@ def search(
 
         for i, entry in enumerate(results, 1):
             dur = entry.duration
-            dur_str = _format_duration(dur) if dur else "N/A"
+            dur_str = format_duration(dur) if dur else "N/A"
             views = entry.view_count
             views_str = f"{views:,}" if views else "N/A"
             entry_url = entry.url or "N/A"
@@ -735,12 +700,12 @@ def search(
 
                         output = questionary.path(
                             "Output directory:",
-                            default="Downloads\\",
+                            default=str(Path.home() / "Downloads"),
                             only_directories=True,
                         ).ask()
                         if output:
                             output = output.strip().strip('"').strip("'")
-                        output = output or "Downloads\\"
+                        output = output or str(Path.home() / "Downloads")
 
                         parallel = questionary.text(
                             "Parallel workers (default 8):",
@@ -814,7 +779,7 @@ def search(
                                 sub_lang=sub_lang,
                                 embed_thumbnail=thumbnail,
                             )
-                        _show_summary_table(results_dl)
+                        show_summary_table(results_dl)
                     else:
                         quality = questionary.select(
                             "Quality:",
@@ -841,12 +806,12 @@ def search(
 
                         output = questionary.path(
                             "Output directory:",
-                            default="Downloads\\",
+                            default=str(Path.home() / "Downloads"),
                             only_directories=True,
                         ).ask()
                         if output:
                             output = output.strip().strip('"').strip("'")
-                        output = output or "Downloads\\"
+                        output = output or str(Path.home() / "Downloads")
 
                         want_subs = questionary.confirm("Download subtitles?", default=False).ask()
                         sub_lang = "en"
@@ -869,7 +834,7 @@ def search(
                                 embed_thumbnail=thumbnail,
                                 progress_callback=progress_callback,
                             )
-                        _show_result_panel(result)
+                        show_result_panel(result)
                 else:
                     console.print("[red]Invalid selection.[/]")
             except (ValueError, TypeError) as e:
@@ -915,9 +880,9 @@ def info(
         console.print("[bold red]Could not retrieve video information.[/]")
         raise typer.Exit(code=1)
 
-    dur_str = _format_duration(video.duration) if video.duration else "N/A"
+    dur_str = format_duration(video.duration) if video.duration else "N/A"
     views_str = f"{video.view_count:,}" if video.view_count else "N/A"
-    size_str = _format_size(video.file_size_approx) if video.file_size_approx else "N/A"
+    size_str = format_file_size(video.file_size_approx) if video.file_size_approx else "N/A"
 
     details = Table(show_header=False, border_style="cyan", expand=True, pad_edge=True)
     details.add_column("Field", style="bold cyan", min_width=20)
@@ -941,7 +906,7 @@ def info(
     if video.chapters:
         ch_lines = []
         for ch in video.chapters[:15]:
-            ch_start = _format_duration(ch.get("start_time", 0))
+            ch_start = format_duration(ch.get("start_time", 0))
             ch_lines.append(f"  {ch_start}  {ch.get('title', 'Chapter')}")
         if len(video.chapters) > 15:
             ch_lines.append(f"  ... and {len(video.chapters) - 15} more")
@@ -1007,7 +972,7 @@ def chapters(
             verbose=verbose,
         )
 
-    _show_summary_table(results)
+    show_summary_table(results)
 
     if any(r.status == DownloadStatus.FAILED for r in results):
         raise typer.Exit(code=1)
@@ -1078,7 +1043,7 @@ def clip(
             verbose=verbose,
         )
 
-    _show_result_panel(result)
+    show_result_panel(result)
 
     if result.status == DownloadStatus.FAILED:
         raise typer.Exit(code=1)
@@ -1093,7 +1058,9 @@ def clip(
         "[bold cyan]Examples:[/]\n\n"
         "  yt-vd history\n\n"
         "  yt-vd history --limit 50\n\n"
-        "  yt-vd history --clear\n"
+        "  yt-vd history --clear\n\n"
+        "  yt-vd history --export csv > downloads.csv\n\n"
+        "  yt-vd history --export json > downloads.json\n"
     ),
 )
 def history(
@@ -1103,6 +1070,9 @@ def history(
     limit: Annotated[
         int, typer.Option("--limit", help="Number of recent entries to show.")
     ] = 20,
+    export: Annotated[
+        str | None, typer.Option("--export", help="Export history as 'csv' or 'json' (writes to stdout).")
+    ] = None,
 ) -> None:
     """Show or manage download history."""
     from core.history import clear_history, get_history
@@ -1112,11 +1082,33 @@ def history(
         console.print("[green]Download history cleared.[/]")
         return
 
-    entries = get_history(limit=limit)
+    entries = get_history(limit=limit if not export else 999999)
 
     if not entries:
         console.print("[yellow]No download history found.[/]")
         return
+
+    # Export mode: machine-readable output to stdout
+    if export:
+        fmt_lower = export.strip().lower()
+        if fmt_lower == "json":
+            import json
+            print(json.dumps(entries, indent=2, default=str))
+            return
+        elif fmt_lower == "csv":
+            import csv
+            import io
+            keys = ["title", "url", "quality", "format", "file_size", "file_path", "downloaded_at", "video_id"]
+            buf = io.StringIO()
+            writer = csv.DictWriter(buf, fieldnames=keys, extrasaction="ignore")
+            writer.writeheader()
+            for entry in entries:
+                writer.writerow(entry)
+            print(buf.getvalue(), end="")
+            return
+        else:
+            console.print(f"[red]Unknown export format: {export!r}. Use 'csv' or 'json'.[/]")
+            raise typer.Exit(code=1)
 
     table = Table(
         title=f"Download History (last {limit})",
@@ -1141,7 +1133,7 @@ def history(
             entry.get("title", "Unknown"),
             entry.get("quality", "N/A"),
             entry.get("format", "N/A"),
-            _format_size(entry.get("file_size", 0)),
+            format_file_size(entry.get("file_size", 0)),
             date_val,
             "[green]completed[/]",
         )
@@ -1164,7 +1156,97 @@ def manual() -> None:
     show_manual()
 
 
+# ── config ───────────────────────────────────────────────────────────────────
+
+
+@app.command(
+    name="config",
+    help=(
+        "View or modify application configuration settings.\n\n"
+        "[bold cyan]Examples:[/]\n\n"
+        "  yt-vd config\n\n"
+        "  yt-vd config --set quality=1080p\n\n"
+        "  yt-vd config --reset\n"
+    ),
+)
+def config_cmd(
+    set_value: Annotated[
+        list[str] | None,
+        typer.Option("--set", "-s", help="Set a configuration value. Format: key=value (e.g. quality=1080p)."),
+    ] = None,
+    reset: Annotated[
+        bool, typer.Option("--reset", help="Reset all configuration values to defaults.")
+    ] = False,
+) -> None:
+    """View or modify configuration settings."""
+    from core.config import ConfigManager
+
+    manager = ConfigManager.get_instance()
+
+    if reset:
+        manager.reset()
+        console.print("[green]Configuration reset to defaults.[/]")
+        return
+
+    if set_value:
+        updates = {}
+        for pair in set_value:
+            if "=" not in pair:
+                console.print(f"[bold red]Error:[/] Invalid format for --set: {pair!r}. Use key=value.")
+                raise typer.Exit(code=1)
+            key, val = pair.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+
+            current_config = manager.current
+            if not hasattr(current_config, key):
+                console.print(f"[bold red]Error:[/] Unknown configuration key: {key!r}.")
+                raise typer.Exit(code=1)
+
+            orig_val = getattr(current_config, key)
+            converted_val: Any
+            if isinstance(orig_val, bool):
+                converted_val = val.lower() in ("true", "yes", "1", "on")
+            elif isinstance(orig_val, int):
+                try:
+                    converted_val = int(val)
+                except ValueError:
+                    console.print(f"[bold red]Error:[/] Value for {key!r} must be an integer.")
+                    raise typer.Exit(code=1)
+            else:
+                converted_val = val
+
+            updates[key] = converted_val
+
+        try:
+            manager.update(**updates)
+            console.print("[green]Configuration updated successfully.[/]")
+        except Exception as e:
+            console.print(f"[bold red]Error updating configuration:[/] {e}")
+            raise typer.Exit(code=1)
+        return
+
+    current = manager.current
+    table = Table(
+        title="yt-vd Configuration Settings",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="cyan",
+    )
+    table.add_column("Setting Key", style="bold white")
+    table.add_column("Current Value", style="green")
+
+    config_dict = current.to_dict()
+    for key, val in sorted(config_dict.items()):
+        table.add_row(key, str(val))
+
+    console.print()
+    console.print(table)
+    console.print(f"Config file path: [dim]{manager.config_path}[/]\n")
+
+
 # ── uninstall ─────────────────────────────────────────────────────────────────
+
 
 
 @app.command(

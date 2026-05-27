@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+
+# ──────────────────────────────────────────────
+# Shared Regex Patterns
+# ──────────────────────────────────────────────
+
+# Precompiled YouTube video ID extraction — shared by all modules
+VIDEO_ID_PATTERN = re.compile(
+    r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/|/watch\?v=|/)([a-zA-Z0-9_-]{11})"
+)
 
 # ──────────────────────────────────────────────
 # Quality Presets
@@ -170,7 +180,7 @@ class DownloadStatus(StrEnum):
 # Download Result Data Structure
 # ──────────────────────────────────────────────
 
-@dataclass
+@dataclass(slots=True)
 class DownloadResult:
     """Result of a single download operation."""
     url: str
@@ -185,7 +195,7 @@ class DownloadResult:
     elapsed_seconds: float = 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class PlaylistInfo:
     """Metadata for a YouTube playlist."""
     title: str
@@ -197,7 +207,7 @@ class PlaylistInfo:
     total_duration: float = 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoInfo:
     """Metadata for a single YouTube video."""
     title: str
@@ -216,7 +226,7 @@ class VideoInfo:
     file_size_approx: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class ProgressInfo:
     """Real-time progress information for a download."""
     video_id: str = ""

@@ -7,7 +7,6 @@ and query utilities for tracking past downloads.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 import threading
 from collections.abc import Generator
@@ -22,14 +21,12 @@ from constants import (
     APP_AUTHOR,
     APP_NAME,
     HISTORY_DB_NAME,
+    VIDEO_ID_PATTERN,
     DownloadResult,
     DownloadStatus,
 )
 
 logger = logging.getLogger(__name__)
-
-# Precompile video ID extraction pattern globally for performance
-_VIDEO_ID_PATTERN = re.compile(r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})")
 
 # ──────────────────────────────────────────────
 # Database Schema
@@ -173,6 +170,46 @@ class DownloadHistory:
             row_id = cursor.lastrowid or -1
             logger.info("Added to history: %s (id=%d)", result.title, row_id)
             return row_id
+
+    def add_batch(self, results: list[DownloadResult]) -> None:
+        """Log a batch of completed downloads to history.
+
+        Only adds entries with COMPLETED status.
+
+        Args:
+            results: The list of download results to record.
+        """
+        completed_results = [r for r in results if r.status == DownloadStatus.COMPLETED]
+        if not completed_results:
+            return
+
+        now = datetime.now(UTC).isoformat()
+
+        insert_data = []
+        for result in completed_results:
+            video_id = _extract_video_id(result.url)
+            insert_data.append((
+                result.url,
+                video_id,
+                result.title,
+                result.quality,
+                result.format,
+                str(result.file_path) if result.file_path else "",
+                result.file_size,
+                result.duration,
+                now,
+            ))
+
+        with self._lock, self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO download_history
+                    (url, video_id, title, quality, format, file_path, file_size, duration, downloaded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                insert_data,
+            )
+            logger.info("Added batch of %d downloads to history", len(completed_results))
 
     def get_all(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         """Retrieve recent download history entries.
@@ -334,7 +371,7 @@ def _extract_video_id(url: str) -> str:
     Returns:
         The video ID string, or an empty string if extraction fails.
     """
-    if match := _VIDEO_ID_PATTERN.search(url):
+    if match := VIDEO_ID_PATTERN.search(url):
         return match.group(1)
     return ""
 
@@ -385,3 +422,12 @@ def add_to_history(result: DownloadResult) -> int:
         The row ID of the inserted record, or -1 if skipped.
     """
     return _get_history_manager().add(result)
+
+
+def add_batch_to_history(results: list[DownloadResult]) -> None:
+    """Log a batch of completed downloads to the default history manager.
+
+    Args:
+        results: The list of download results to record.
+    """
+    _get_history_manager().add_batch(results)

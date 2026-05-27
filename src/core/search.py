@@ -7,7 +7,6 @@ returning results as ``VideoInfo`` dataclass instances.
 from __future__ import annotations
 
 import logging
-import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -18,9 +17,6 @@ from constants import VideoInfo
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
-
-# Precompile video ID extraction pattern globally for performance
-_VIDEO_ID_PATTERN = re.compile(r"(?:v=|\/)([a-zA-Z0-9_-]{11})")
 
 
 def _clean_thumbnail_url(url: str) -> str:

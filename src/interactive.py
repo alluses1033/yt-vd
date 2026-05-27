@@ -12,7 +12,6 @@ from pathlib import Path
 
 import questionary
 from questionary import Style as QStyle
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
@@ -22,8 +21,9 @@ from constants import (
     QualityPreset,
     VideoFormat,
 )
-
-console = Console()
+from core.display import console
+from core.display import show_result_panel as _show_result
+from core.display import show_summary_table as _show_results_table
 
 # ── Questionary theming ──────────────────────────────────────────────────────
 
@@ -400,7 +400,7 @@ def _action_search() -> None:
                         try:
                             ansi_thumbnails[entry.url] = future.result()
                         except Exception:
-                            ansi_thumbnails[entry.url] = ""
+                            ansi_thumbnails[entry.url] = None
 
         from rich.table import Table
         from rich.text import Text
@@ -646,97 +646,221 @@ def _action_help() -> None:
 
     show_manual()
 
+def _action_download_channel() -> None:
+    """Download videos from a YouTube channel."""
+    url = _ask_url("YouTube Channel URL")
+    if not url:
+        return
+    last_n_str = questionary.text(
+        "Number of recent videos to download (default 10):",
+        default="10",
+        style=CUSTOM_STYLE,
+    ).ask()
+    if last_n_str is None:
+        return
+    try:
+        last_n = int(last_n_str)
+    except ValueError:
+        last_n = 10
 
-# ── Result display helpers ───────────────────────────────────────────────────
+    quality = _ask_quality()
+    fmt = _ask_video_format()
+    output_dir = _ask_output_dir()
+    parallel = _ask_parallel()
+
+    from core.playlist import download_channel
+    console.print(f"\n[cyan]Fetching channel metadata for {url}...[/]")
+    results = download_channel(
+        url,
+        last_n=last_n,
+        quality=quality,
+        fmt=fmt,
+        output_dir=output_dir,
+        parallel=parallel,
+    )
+    _show_results_table(results)
 
 
-def _show_result(result) -> None:  # noqa: ANN001  — accepts DownloadResult
-    """Display a single download result."""
-    from constants import DownloadStatus
+def _action_download_batch() -> None:
+    """Download videos from a batch text file."""
+    file_path = questionary.text(
+        "Path to text file containing URLs:",
+        style=CUSTOM_STYLE,
+    ).ask()
+    if not file_path:
+        return
+    p = Path(file_path)
+    if not p.exists() or not p.is_file():
+        console.print("[bold red]Error:[/] File not found or is not a file.")
+        return
 
-    if result.status == DownloadStatus.COMPLETED:
-        style = "green"
-    elif result.status == DownloadStatus.FAILED:
-        style = "red"
-    else:
-        style = "yellow"
+    # Read URLs
+    urls = []
+    try:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    urls.append(line)
+    except Exception as e:
+        console.print(f"[bold red]Error reading file:[/] {e}")
+        return
 
-    size_mb = f"{result.file_size / 1_048_576:.1f} MB" if result.file_size else "N/A"
-    elapsed = f"{result.elapsed_seconds:.1f}s" if result.elapsed_seconds else "N/A"
+    if not urls:
+        console.print("[yellow]No URLs found in file.[/]")
+        return
 
-    console.print()
-    console.print(
-        Panel(
-            f"[bold]{result.title or result.url}[/]\n\n"
-            f"  [bold]Status:[/]  [{style}]{result.status.value}[/{style}]\n"
-            f"  [bold]Quality:[/] {result.quality or 'N/A'}\n"
-            f"  [bold]Size:[/]    {size_mb}\n"
-            f"  [bold]Time:[/]    {elapsed}\n"
-            f"  [bold]File:[/]    {result.file_path or 'N/A'}"
-            + (f"\n  [bold red]Error:[/]  {result.error_message}" if result.error_message else ""),
-            title=f"[bold {style}]Download Result[/]",
-            border_style=style,
+    quality = _ask_quality()
+    fmt = _ask_video_format()
+    output_dir = _ask_output_dir()
+    parallel = _ask_parallel()
+
+    from core.parallel import download_parallel
+    entries = [{"url": url} for url in urls]
+
+    console.print(f"\n[cyan]Starting batch download of {len(urls)} URLs...[/]")
+    results = download_parallel(
+        entries,
+        quality=quality,
+        fmt=fmt,
+        output_dir=output_dir,
+        workers=parallel,
+    )
+    _show_results_table(results)
+
+
+def _action_download_clip() -> None:
+    """Download a specific time range from a video."""
+    url = _ask_url("YouTube Video URL")
+    if not url:
+        return
+    start = questionary.text(
+        "Start time (e.g. 01:30 or 10:00, leave blank for beginning):",
+        style=CUSTOM_STYLE,
+    ).ask()
+    if start is None:
+        return
+    end = questionary.text(
+        "End time (e.g. 03:45 or 12:30, leave blank for end of video):",
+        style=CUSTOM_STYLE,
+    ).ask()
+    if end is None:
+        return
+
+    if not start.strip() and not end.strip():
+        console.print("[bold red]Error:[/] Specify at least start or end time.")
+        return
+
+    quality = _ask_quality()
+    fmt = _ask_video_format()
+    output_dir = _ask_output_dir()
+
+    from core.downloader import download_clip
+    from core.progress import TerminalProgress
+
+    with TerminalProgress(console, "Clip") as progress_callback:
+        result = download_clip(
+            url=url,
+            start_time=start.strip() or None,
+            end_time=end.strip() or None,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output_dir,
+            progress_callback=progress_callback,
         )
-    )
+    _show_result(result)
 
 
-def _show_results_table(results: list) -> None:
-    """Display a summary table for multiple download results."""
-    from rich.table import Table
+def _action_download_chapters() -> None:
+    """Download a video split by chapter markers."""
+    url = _ask_url("YouTube Video URL")
+    if not url:
+        return
+    quality = _ask_quality()
+    fmt = _ask_video_format()
+    output_dir = _ask_output_dir()
 
-    from constants import DownloadStatus
+    from core.metadata import download_by_chapters
+    from core.progress import TerminalProgress
 
-    table = Table(
-        title="Download Summary",
-        show_header=True,
-        header_style="bold cyan",
-        border_style="cyan",
-        expand=True,
-    )
-    table.add_column("#", style="dim", width=4, justify="right")
-    table.add_column("Title", style="bold white", ratio=3)
-    table.add_column("Quality", justify="center", width=10)
-    table.add_column("Size", justify="right", width=10)
-    table.add_column("Time", justify="right", width=8)
-    table.add_column("Status", justify="center", width=12)
-
-    for i, r in enumerate(results, 1):
-        status_style = {
-            DownloadStatus.COMPLETED: "green",
-            DownloadStatus.FAILED: "red",
-            DownloadStatus.SKIPPED: "yellow",
-        }.get(r.status, "white")
-
-        size_mb = f"{r.file_size / 1_048_576:.1f} MB" if r.file_size else "N/A"
-        elapsed = f"{r.elapsed_seconds:.1f}s" if r.elapsed_seconds else "N/A"
-
-        table.add_row(
-            str(i),
-            r.title or r.url[:40],
-            r.quality or "N/A",
-            size_mb,
-            elapsed,
-            f"[{status_style}]{r.status.value}[/{status_style}]",
+    with TerminalProgress(console, "Chapters") as progress_callback:
+        results = download_by_chapters(
+            url=url,
+            quality=quality,
+            fmt=fmt,
+            output_dir=output_dir,
+            progress_callback=progress_callback,
         )
+    _show_results_table(results)
 
-    console.print()
-    console.print(table)
 
-    # Summary counts
-    from constants import DownloadStatus
+def _action_history() -> None:
+    """Show or manage download history."""
+    from core.history import clear_history, get_history
+    choice = questionary.select(
+        "History Management:",
+        choices=[
+            questionary.Choice("Show recent entries", value="show"),
+            questionary.Choice("Clear all history", value="clear"),
+            questionary.Choice("Back to main menu", value="back"),
+        ],
+        style=CUSTOM_STYLE,
+    ).ask()
 
-    ok = sum(1 for r in results if r.status == DownloadStatus.COMPLETED)
-    fail = sum(1 for r in results if r.status == DownloadStatus.FAILED)
-    skip = sum(1 for r in results if r.status == DownloadStatus.SKIPPED)
-    total_size = sum(r.file_size for r in results if r.file_size)
-    total_mb = f"{total_size / 1_048_576:.1f} MB" if total_size else "0 MB"
+    if choice == "clear":
+        confirm = questionary.confirm(
+            "Are you sure you want to clear all history?",
+            default=False,
+            style=CUSTOM_STYLE,
+        ).ask()
+        if confirm:
+            clear_history()
+            console.print("[green]Download history cleared.[/]")
+    elif choice == "show":
+        limit_str = questionary.text(
+            "Number of entries to show (default 20):",
+            default="20",
+            style=CUSTOM_STYLE,
+        ).ask()
+        try:
+            limit = int(limit_str)
+        except (ValueError, TypeError):
+            limit = 20
 
-    console.print(
-        f"\n  [green]{ok} completed[/]  "
-        f"[red]{fail} failed[/]  "
-        f"[yellow]{skip} skipped[/]  "
-        f"[cyan]{total_mb} total[/]\n"
-    )
+        entries = get_history(limit=limit)
+        if not entries:
+            console.print("[yellow]No download history found.[/]")
+            return
+
+        from rich.table import Table
+
+        from core.utils import format_file_size
+        table = Table(
+            title=f"Download History (last {limit})",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="cyan",
+        )
+        table.add_column("#", style="dim", justify="right")
+        table.add_column("Downloaded At", style="cyan")
+        table.add_column("Title", style="bold white")
+        table.add_column("Quality", justify="center")
+        table.add_column("Size", justify="right")
+
+        for idx, entry in enumerate(entries, 1):
+            size = format_file_size(entry["file_size"]) if entry.get("file_size") else "N/A"
+            dt_str = entry.get("downloaded_at", "Unknown")
+            if "T" in dt_str:
+                dt_str = dt_str.split(".")[0].replace("T", " ")
+            table.add_row(
+                str(idx),
+                dt_str,
+                entry.get("title") or "Unknown",
+                entry.get("quality") or "N/A",
+                size,
+            )
+        console.print()
+        console.print(table)
 
 
 # ── Main menu loop ───────────────────────────────────────────────────────────
@@ -744,9 +868,14 @@ def _show_results_table(results: list) -> None:
 MENU_CHOICES = [
     questionary.Choice("Download Video", value="download"),
     questionary.Choice("Download Playlist", value="playlist"),
+    questionary.Choice("Download Channel", value="channel"),
+    questionary.Choice("Download Batch File", value="batch"),
+    questionary.Choice("Download Clip Range", value="clip"),
+    questionary.Choice("Download Split by Chapters", value="chapters"),
     questionary.Choice("Extract Audio", value="audio"),
     questionary.Choice("Search YouTube", value="search"),
-    questionary.Choice("Video Info", value="info"),
+    questionary.Choice("View Video Info", value="info"),
+    questionary.Choice("View Download History", value="history"),
     questionary.Choice("Help Manual", value="manual"),
     questionary.Separator(),
     questionary.Choice("Exit", value="exit"),
@@ -755,11 +884,17 @@ MENU_CHOICES = [
 ACTIONS: dict[str, Callable[[], None]] = {
     "download": _action_download_video,
     "playlist": _action_download_playlist,
+    "channel": _action_download_channel,
+    "batch": _action_download_batch,
+    "clip": _action_download_clip,
+    "chapters": _action_download_chapters,
     "audio": _action_extract_audio,
     "search": _action_search,
     "info": _action_video_info,
+    "history": _action_history,
     "manual": _action_help,
 }
+
 
 
 def run_interactive() -> None:
@@ -787,9 +922,8 @@ def run_interactive() -> None:
         ).ask()
 
         if choice is None or choice == "exit":
-            import os
             console.print("\n[bold magenta]Goodbye![/]\n")
-            os._exit(0)
+            raise SystemExit(0)
 
         action = ACTIONS.get(choice)
         if action:

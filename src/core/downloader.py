@@ -20,11 +20,12 @@ from constants import (
     DEFAULT_FRAGMENT_THREADS,
     DOWNLOAD_CHUNK_SIZE,
     MAX_RETRIES,
-    RETRY_BACKOFF_FACTOR,
     SINGLE_VIDEO_TEMPLATE,
     SOCKET_TIMEOUT,
+    VIDEO_ID_PATTERN,
     DownloadResult,
     DownloadStatus,
+    ProgressInfo,
 )
 from core.fragment_safety import SafeDownloadManager, verify_file_integrity
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
@@ -39,8 +40,14 @@ from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
 
-# Precompile video ID extraction pattern globally for performance
-_VIDEO_ID_PATTERN = re.compile(r"(?:v=|\/)([a-zA-Z0-9_-]{11})")
+# Precompiled regex for download_clip time parsing (HH:MM:SS / MM:SS / float)
+_NUMERIC_TIME_PATTERN = re.compile(r"^\d+(\.\d+)?$")
+
+
+def _has_aria2c() -> bool:
+    """Check if aria2c binary is available on PATH."""
+    import shutil
+    return shutil.which("aria2c") is not None
 
 
 # ──────────────────────────────────────────────
@@ -63,6 +70,12 @@ def build_ydl_opts(
     use_temp_dir: bool = True,
     extra_opts: dict[str, Any] | None = None,
     video_id: str | None = None,
+    # New options
+    use_aria2c: bool = False,
+    cookies_from_browser: str | None = None,
+    cookies_file: str | None = None,
+    rate_limit: str | None = None,
+    proxy: str | None = None,
 ) -> dict[str, Any]:
     """Build a complete yt-dlp options dictionary.
 
@@ -161,6 +174,40 @@ def build_ydl_opts(
     if merged_progress_hooks:
         opts["progress_hooks"] = merged_progress_hooks
 
+    # External downloader: aria2c for faster multi-connection downloads
+    # Only applies to direct HTTP downloads, not HLS/DASH (which use fragment_threads)
+    if use_aria2c and _has_aria2c():
+        opts["external_downloader"] = "aria2c"
+        opts["external_downloader_args"] = {
+            "aria2c": ["-x", "16", "-s", "16", "-k", "1M", "--min-split-size=1M"]
+        }
+        logger.debug("aria2c external downloader enabled")
+    elif use_aria2c:
+        logger.warning("aria2c requested but not found on PATH — using default downloader")
+
+    # Cookie sources for age-restricted / private videos
+    if cookies_from_browser:
+        opts["cookiesfrombrowser"] = (cookies_from_browser,)
+    elif cookies_file:
+        opts["cookiefile"] = cookies_file
+
+    # Rate limiting
+    if rate_limit:
+        # Accept strings like "5M", "500K", or plain bytes
+        rate_str = str(rate_limit).upper().strip()
+        multiplier = {"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}
+        try:
+            if rate_str and rate_str[-1] in multiplier:
+                opts["ratelimit"] = int(float(rate_str[:-1]) * multiplier[rate_str[-1]])
+            else:
+                opts["ratelimit"] = int(rate_str)
+        except ValueError:
+            logger.warning("Invalid rate limit value: %r — ignoring", rate_limit)
+
+    # Proxy
+    if proxy:
+        opts["proxy"] = proxy
+
     return opts
 
 
@@ -219,6 +266,12 @@ def download_video(
     progress_callback: ProgressCallback | None = None,
     max_retries: int = MAX_RETRIES,
     extra_opts: dict[str, Any] | None = None,
+    use_aria2c: bool = False,
+    cookies_from_browser: str | None = None,
+    cookies_file: str | None = None,
+    rate_limit: str | None = None,
+    proxy: str | None = None,
+    skip_downloaded: bool = False,
     **kwargs: Any,
 ) -> DownloadResult:
     """Download a single YouTube video.
@@ -254,8 +307,13 @@ def download_video(
     use_temp_dir = kwargs.pop("use_temp_dir", True)
     shutdown_event = kwargs.pop("shutdown_event", None)
 
+    # Validate URL
+    from core.utils import validate_url
+    if not validate_url(url):
+        logger.warning("URL does not appear to be a YouTube URL: %s", url)
+
     # Extract video ID from URL or fallback
-    match = _VIDEO_ID_PATTERN.search(url)
+    match = VIDEO_ID_PATTERN.search(url)
     video_id = match.group(1) if match else None
     if not video_id:
         import hashlib
@@ -271,6 +329,18 @@ def download_video(
 
     result = DownloadResult(url=url)
     start_time = time.monotonic()
+
+    # Skip if already in history
+    if skip_downloaded:
+        try:
+            from core.history import DownloadHistory
+            if DownloadHistory().exists(url):
+                logger.info("Skipping already-downloaded URL: %s", url)
+                result.status = DownloadStatus.SKIPPED
+                result.error_message = "Already downloaded (--skip-downloaded)"
+                return result
+        except Exception as e:
+            logger.debug("History check failed: %s", e)
 
     # Ensure output directory exists and is absolute
     output_path = Path(output_dir).resolve()
@@ -332,102 +402,89 @@ def download_video(
         use_temp_dir=use_temp_dir,
         extra_opts=extra_opts,
         video_id=video_id,
+        use_aria2c=use_aria2c,
+        cookies_from_browser=cookies_from_browser,
+        cookies_file=cookies_file,
+        rate_limit=rate_limit,
+        proxy=proxy,
     )
 
+    # Create safety manager once — reused for cleanup on success, error, and interrupt
+    safety = SafeDownloadManager(output_path, video_id=video_id)
+
     # Download with retry
-    last_error: Exception | None = None
-    for attempt in range(1, max_retries + 1):
-        if shutdown_event and shutdown_event.is_set():
-            raise KeyboardInterrupt("Cancelled")
-        try:
-            tracker.set_status(DownloadStatus.DOWNLOADING)
+    def _do_download() -> dict[str, Any]:
+        with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+            info = ydl.extract_info(url, download=True)
+        if info is None:
+            raise DownloadError("Download returned no info")
+        return cast(dict[str, Any], info)
 
-            with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
-                download_info = ydl.extract_info(url, download=True)
+    try:
+        from core.retry import retry_operation
+        download_info = retry_operation(
+            _do_download,
+            max_retries=max_retries,
+            shutdown_event=shutdown_event,
+            tracker=tracker,
+            safety=safety,
+            label="Download",
+            retriable_checker=_is_retriable,
+        )
 
-            if download_info is None:
-                raise DownloadError("Download returned no info")
+        # Find the downloaded file
+        final_path = _find_downloaded_file(download_info, output_path)
+        title_value = download_info.get("title") or result.title
+        result.title = title_value
+        result.quality = effective_quality
+        result.format = video_format
 
-            # Find the downloaded file
-            final_path = _find_downloaded_file(cast(dict[str, Any], download_info), output_path)
-            title_value = cast(dict[str, Any], download_info).get("title") or result.title
-            result.title = title_value
-            result.quality = effective_quality
-            result.format = video_format
-
-            if final_path and final_path.exists():
-                # Verify integrity
-                if verify_file_integrity(final_path):
-                    result.file_path = final_path
-                    result.file_size = final_path.stat().st_size
-                    result.status = DownloadStatus.COMPLETED
-                    tracker.set_status(DownloadStatus.COMPLETED)
-                else:
-                    logger.warning("File integrity check failed for %s", final_path)
-                    result.file_path = final_path
-                    result.file_size = final_path.stat().st_size
-                    result.status = DownloadStatus.COMPLETED  # still usable
-                    tracker.set_status(DownloadStatus.COMPLETED)
-
-                # Clean up subtitles if they were embedded
-                if embed_subs:
-                    try:
-                        cleanup_leftover_subtitles(final_path, result.title)
-                    except Exception as e:
-                        logger.debug("Failed to clean up leftover subtitles: %s", e)
-            else:
+        if final_path and final_path.exists():
+            # Verify integrity
+            if verify_file_integrity(final_path):
+                result.file_path = final_path
+                result.file_size = final_path.stat().st_size
                 result.status = DownloadStatus.COMPLETED
                 tracker.set_status(DownloadStatus.COMPLETED)
-
-            result.elapsed_seconds = time.monotonic() - start_time
-            # Add to history database
-            try:
-                from core.history import add_to_history
-                add_to_history(result)
-            except Exception as e:
-                logger.debug("Failed to write download history: %s", e)
-
-            # Clean up temp directory
-            safety = SafeDownloadManager(output_path, video_id=video_id)
-            safety.cleanup_temp()
-            return result
-
-        except DownloadError as e:
-            last_error = e
-            if attempt < max_retries and _is_retriable(e):
-                wait = RETRY_BACKOFF_FACTOR ** attempt
-                logger.warning(
-                    "Download attempt %d/%d failed: %s — retrying in %.0fs",
-                    attempt,
-                    max_retries,
-                    e,
-                    wait,
-                )
-                time.sleep(wait)
             else:
-                break
-        except KeyboardInterrupt:
-            logger.warning("Download interrupted by user.")
-            safety = SafeDownloadManager(output_path, video_id=video_id)
-            safety.cleanup_temp()
-            tracker.set_status(DownloadStatus.FAILED)
-            raise
+                logger.warning("File integrity check failed for %s", final_path)
+                result.file_path = final_path
+                result.file_size = final_path.stat().st_size
+                result.status = DownloadStatus.COMPLETED  # still usable
+                tracker.set_status(DownloadStatus.COMPLETED)
+
+            # Clean up subtitles if they were embedded
+            if embed_subs:
+                try:
+                    cleanup_leftover_subtitles(final_path, result.title)
+                except Exception as e:
+                    logger.debug("Failed to clean up leftover subtitles: %s", e)
+        else:
+            result.status = DownloadStatus.COMPLETED
+            tracker.set_status(DownloadStatus.COMPLETED)
+
+        result.elapsed_seconds = time.monotonic() - start_time
+        # Add to history database
+        try:
+            from core.history import add_to_history
+            add_to_history(result)
         except Exception as e:
-            last_error = e
-            break
+            logger.debug("Failed to write download history: %s", e)
 
-    # All retries exhausted or non-retriable error
-    result.status = DownloadStatus.FAILED
-    result.error_message = str(last_error) if last_error else "Unknown error"
-    result.elapsed_seconds = time.monotonic() - start_time
-    tracker.set_status(DownloadStatus.FAILED)
-    logger.error("Download failed for %s: %s", url, result.error_message)
+        # Clean up temp directory
+        safety.cleanup_temp()
+        return result
 
-    # Clean up temp directory even on failure so empty folders are removed
-    safety = SafeDownloadManager(output_path, video_id=video_id)
-    safety.cleanup_temp()
+    except Exception as e:
+        result.status = DownloadStatus.FAILED
+        result.error_message = str(e)
+        result.elapsed_seconds = time.monotonic() - start_time
+        tracker.set_status(DownloadStatus.FAILED)
+        logger.error("Download failed for %s: %s", url, result.error_message)
 
-    return result
+        # Clean up temp directory even on failure so empty folders are removed
+        safety.cleanup_temp()
+        return result
 
 
 # ──────────────────────────────────────────────
@@ -530,7 +587,7 @@ def download_clip(
         t_str = str(t).strip()
         if not t_str:
             return None
-        if re.match(r"^\d+(\.\d+)?$", t_str):
+        if _NUMERIC_TIME_PATTERN.match(t_str):
             return float(t_str)
         parts = t_str.split(":")
         if len(parts) == 2:

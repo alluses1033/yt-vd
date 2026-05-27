@@ -21,11 +21,11 @@ _MIN_VALID_SIZE = 1024  # 1 KiB
 
 # Magic bytes for container format validation
 _CONTAINER_SIGNATURES: dict[str, list[bytes]] = {
-    ".mp4": [b"\x00\x00\x00", b"ftyp"],  # ISO Base Media — ftyp box
+    ".mp4": [b"ftyp"],          # ISO Base Media — ftyp box at bytes 4-8
     ".mkv": [b"\x1a\x45\xdf\xa3"],  # Matroska / EBML header
     ".webm": [b"\x1a\x45\xdf\xa3"],  # WebM uses same EBML header
     ".mp3": [b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"ID3"],
-    ".m4a": [b"\x00\x00\x00", b"ftyp"],
+    ".m4a": [b"ftyp"],          # ISO Base Media — ftyp box at bytes 4-8
     ".flac": [b"fLaC"],
     ".wav": [b"RIFF"],
     ".opus": [b"OggS"],
@@ -149,26 +149,11 @@ def _hide_folder(path: Path) -> None:
     import os
     if os.name == "nt":
         import ctypes
-        FILE_ATTRIBUTE_HIDDEN = 0x02
+        file_attribute_hidden = 0x02
         try:
-            ctypes.windll.kernel32.SetFileAttributesW(str(path), FILE_ATTRIBUTE_HIDDEN)
+            ctypes.windll.kernel32.SetFileAttributesW(str(path), file_attribute_hidden)
         except Exception:
             pass
-
-
-def get_temp_path(output_dir: str | Path) -> Path:
-    """Get or create the temp directory for a given output directory.
-
-    Args:
-        output_dir: The base output directory.
-
-    Returns:
-        Path to the temp directory (created if necessary).
-    """
-    temp_path = Path(output_dir) / TEMP_DIR_NAME
-    temp_path.mkdir(parents=True, exist_ok=True)
-    _hide_folder(temp_path)
-    return temp_path
 
 
 def verify_file_integrity(filepath: str | Path) -> bool:

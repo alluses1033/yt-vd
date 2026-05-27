@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from constants import YOUTUBE_URL_PATTERNS
 
@@ -253,11 +253,4 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
-def fetch_video_info(url: str) -> Any:
-    """Helper function to fetch video info in the GUI thread.
-
-    Delegates to core.metadata.get_video_info.
-    """
-    from core.metadata import get_video_info
-    return get_video_info(url)
 

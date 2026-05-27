@@ -27,7 +27,7 @@ class ControlSegment(Segment):
 
 class TerminalImage:
     """Rich renderable for terminal images.
-    
+
     Supports inline graphics protocols (Kitty, WezTerm/iTerm2, Sixel) and
     fallbacks to standard ANSI unicode half-block sequences.
     """
