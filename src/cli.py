@@ -88,6 +88,7 @@ def _main_callback(
     ),
 )
 def download(
+    ctx: typer.Context,
     url: Annotated[str, typer.Argument(help="YouTube video URL.")],
     quality: Annotated[
         str, typer.Option("--quality", "-q", help="Quality preset or resolution (e.g. best, high, 1080p).")
@@ -138,7 +139,6 @@ def download(
     from core.config import ConfigManager
 
     config = ConfigManager().load()
-    ctx = click.get_current_context()
 
     if ctx.get_parameter_source("quality") == click.core.ParameterSource.DEFAULT:
         quality = config.quality
@@ -317,6 +317,7 @@ def playlist(
     ),
 )
 def audio(
+    ctx: typer.Context,
     url: Annotated[str, typer.Argument(help="YouTube video or playlist URL.")],
     fmt: Annotated[
         str, typer.Option("--format", "-f", help="Audio format (mp3, m4a, flac, wav, opus).")
@@ -340,7 +341,6 @@ def audio(
     from core.config import ConfigManager
 
     config = ConfigManager().load()
-    ctx = click.get_current_context()
 
     if ctx.get_parameter_source("fmt") == click.core.ParameterSource.DEFAULT:
         fmt = config.audio_format
@@ -922,7 +922,6 @@ def info(
         Panel(details, title="[bold cyan]Video Info[/]", border_style="cyan")
     )
 
-
 # ── chapters ─────────────────────────────────────────────────────────────────
 
 
@@ -1358,6 +1357,21 @@ def uninstall(
         console.print("yt-vd has been successfully uninstalled.")
         raise typer.Exit()
 
+# Forceful exit wrapper to prevent hanging on non-daemon yt-dlp threads
+original_call = app.__call__
 
+def _wrapped_app_call(*args: Any, **kwargs: Any) -> Any:
+    try:
+        return original_call(*args, **kwargs)
+    except KeyboardInterrupt:
+        import os
+        import sys
+        print("\n⚠ Interrupted by user — forcing exit to terminate background threads...", file=sys.stderr)
+        os._exit(130)
+    except SystemExit as e:
+        import os
+        # Force exit to bypass concurrent.futures atexit thread joining
+        code = e.code if isinstance(e.code, int) else 0
+        os._exit(code)
 
-
+app.__call__ = _wrapped_app_call  # type: ignore[method-assign]
