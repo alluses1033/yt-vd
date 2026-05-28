@@ -14,22 +14,13 @@ from typing import Any
 import yt_dlp
 
 from constants import VideoInfo
+from core.utils import normalize_youtube_thumbnail_url
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
 
-
-def _clean_thumbnail_url(url: str) -> str:
-    if not url:
-        return ""
-    # YouTube thumbnails optimization to get highest resolution
-    if "i.ytimg.com" in url or "img.youtube.com" in url:
-        for name in ("default", "mqdefault", "sddefault", "maxresdefault"):
-            if f"/{name}.jpg" in url:
-                return url.replace(f"/{name}.jpg", "/hqdefault.jpg")
-            elif f"/{name}.webp" in url:
-                return url.replace(f"/{name}.webp", "/hqdefault.jpg")
-    return url
+_VIDEO_SEARCH_CACHE: dict[str, list[dict[str, Any]]] = {}
+_PLAYLIST_SEARCH_CACHE: dict[str, list[dict[str, Any]]] = {}
 
 
 def search_youtube(
@@ -49,10 +40,14 @@ def search_youtube(
     Returns:
         A list of ``VideoInfo`` instances for search results.
     """
-    limit = page * max_results
+    needed_limit = page * max_results
 
     # Run video search and playlist search in parallel
     def get_videos() -> list[dict[str, Any]]:
+        cached = _VIDEO_SEARCH_CACHE.get(query, [])
+        if len(cached) >= needed_limit:
+            return cached[:needed_limit]
+
         opts = with_base_ydl_opts({
             "skip_download": True,
             "extract_flat": True,
@@ -65,7 +60,7 @@ def search_youtube(
                 }
             }
         })
-        search_url = f"ytsearch{limit}:{query}"
+        search_url = f"ytsearch{needed_limit}:{query}"
         results = []
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -76,9 +71,15 @@ def search_youtube(
                             results.append(entry)
         except Exception as e:
             logger.debug("Video search failed: %s", e)
+            return cached[:needed_limit]
+        _VIDEO_SEARCH_CACHE[query] = results
         return results
 
     def get_playlists() -> list[dict[str, Any]]:
+        cached = _PLAYLIST_SEARCH_CACHE.get(query, [])
+        if len(cached) >= needed_limit:
+            return cached[:needed_limit]
+
         opts = with_base_ydl_opts({
             "skip_download": True,
             "extract_flat": True,
@@ -104,6 +105,8 @@ def search_youtube(
                             results.append(entry)
         except Exception as e:
             logger.debug("Playlist search failed: %s", e)
+            return cached[:needed_limit]
+        _PLAYLIST_SEARCH_CACHE[query] = results
         return results
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -155,8 +158,7 @@ def search_youtube(
         if not thumb:
             thumb = entry.get("thumbnail")
 
-        # Clean thumbnail URL to ensure it is hqdefault if it's YouTube
-        thumb = _clean_thumbnail_url(thumb or "")
+        thumb = normalize_youtube_thumbnail_url(thumb or "")
 
         # Parse duration
         dur_val = entry.get("duration")

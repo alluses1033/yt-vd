@@ -197,55 +197,6 @@ def extract_audio(
         return result
 
 
-def get_audio_info(url: str) -> dict[str, Any]:
-    """Get audio-specific metadata for a YouTube video.
-
-    Extracts information about available audio streams, codecs,
-    bitrates, and sample rates.
-
-    Args:
-        url: YouTube video URL.
-
-    Returns:
-        A dict with keys: ``best_audio``, ``audio_streams``,
-        ``title``, ``duration``, ``thumbnail``.
-    """
-    opts: dict[str, Any] = with_base_ydl_opts({
-        "skip_download": True,
-    })
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        if info is None:
-            return {}
-
-    formats: list[dict[str, Any]] = info.get("formats") or []
-
-    # Filter to audio-only streams
-    audio_streams: list[dict[str, Any]] = []
-    for fmt in formats:
-        if fmt.get("acodec", "none") != "none" and fmt.get("vcodec", "none") == "none":
-            audio_streams.append({
-                "format_id": fmt.get("format_id", ""),
-                "codec": fmt.get("acodec", "unknown"),
-                "bitrate": fmt.get("abr", 0),
-                "sample_rate": fmt.get("asr", 0),
-                "file_size": fmt.get("filesize") or fmt.get("filesize_approx", 0),
-                "ext": fmt.get("ext", ""),
-            })
-
-    # Sort by bitrate descending
-    audio_streams.sort(key=lambda s: s.get("bitrate", 0), reverse=True)
-
-    return {
-        "title": info.get("title", ""),
-        "duration": info.get("duration", 0),
-        "thumbnail": info.get("thumbnail", ""),
-        "best_audio": audio_streams[0] if audio_streams else {},
-        "audio_streams": audio_streams,
-    }
-
-
 def _find_audio_file(
     info: dict[str, Any],
     output_dir: Path,

@@ -424,10 +424,3 @@ def add_to_history(result: DownloadResult) -> int:
     return _get_history_manager().add(result)
 
 
-def add_batch_to_history(results: list[DownloadResult]) -> None:
-    """Log a batch of completed downloads to the default history manager.
-
-    Args:
-        results: The list of download results to record.
-    """
-    _get_history_manager().add_batch(results)

@@ -20,6 +20,7 @@ from constants import (
     DownloadStatus,
 )
 from core.display import console, show_result_panel, show_summary_table
+from core.presentation import build_entry_titles, render_result_thumbnails
 from core.utils import format_duration, format_file_size
 
 # ── Typer app ────────────────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ def playlist(
     # Fetch and display playlist info
     from core.playlist import download_playlist, get_playlist_info
 
+    info = None
     try:
         info = get_playlist_info(url)
         if info:
@@ -279,7 +281,7 @@ def playlist(
         start_idx = max(0, start - 1)
         end_idx = end if end is not None else len(info.entries)
         sliced_entries = info.entries[start_idx:end_idx]
-        titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+        titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
 
     with MultiTerminalProgress(console, titles) as progress_callback:
         results = download_playlist(
@@ -432,7 +434,7 @@ def channel(
         info = get_playlist_info(url)
         if info and info.entries:
             selected_entries = info.entries[:last]
-            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(selected_entries, 1)]
+            titles = build_entry_titles(selected_entries, start_index=1)
     except Exception:
         pass
 
@@ -582,23 +584,8 @@ def search(
 
         ansi_thumbnails = {}
         if is_term and results:
-            from concurrent.futures import ThreadPoolExecutor
-
-            from core.thumbnail_renderer import get_ansi_thumbnail
-
             with console.status("[cyan]Rendering thumbnails...[/]"):
-                with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
-                    futures = {
-                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 32, 12): entry
-                        for entry in results
-                        if entry.thumbnail_url
-                    }
-                    for future in futures:
-                        entry = futures[future]
-                        try:
-                            ansi_thumbnails[entry.url] = future.result()
-                        except Exception:
-                            ansi_thumbnails[entry.url] = None
+                ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
 
         from rich.text import Text
 
@@ -747,7 +734,7 @@ def search(
                             start_idx = max(0, start - 1)
                             end_idx = end if end is not None else len(info.entries)
                             sliced_entries = info.entries[start_idx:end_idx]
-                            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+                            titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
 
                         from core.progress import MultiTerminalProgress
 
@@ -1296,13 +1283,17 @@ def uninstall(
         # Kill running processes of yt-vd/yt-vd-gui (except this one if possible, but force kill is fine since we exit)
         ps_parts.append("Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue")
 
+        def _ps_single_quote(value: str) -> str:
+            # PowerShell single-quoted strings escape single quote by doubling it.
+            return value.replace("'", "''")
+
         # Clean config/history
-        user_data_str = str(user_data)
+        user_data_str = _ps_single_quote(str(user_data))
         ps_parts.append(f"if (Test-Path '{user_data_str}') {{ Remove-Item '{user_data_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
 
         # Clean installation folder
         if install_dir:
-            install_dir_str = str(install_dir)
+            install_dir_str = _ps_single_quote(str(install_dir))
             ps_parts.append(f"if (Test-Path '{install_dir_str}') {{ Remove-Item '{install_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
 
             # Clean PATH
@@ -1369,9 +1360,7 @@ def _wrapped_app_call(*args: Any, **kwargs: Any) -> Any:
         print("\n⚠ Interrupted by user — forcing exit to terminate background threads...", file=sys.stderr)
         os._exit(130)
     except SystemExit as e:
-        import os
-        # Force exit to bypass concurrent.futures atexit thread joining
-        code = e.code if isinstance(e.code, int) else 0
-        os._exit(code)
+        # Preserve normal exit semantics so cleanup/finally handlers can run.
+        raise e
 
 app.__call__ = _wrapped_app_call  # type: ignore[method-assign]

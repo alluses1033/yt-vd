@@ -19,7 +19,7 @@ from constants import (
 )
 from core.downloader import build_ydl_opts, extract_info
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
-from core.ydl_options import with_base_ydl_opts
+from core.utils import normalize_youtube_thumbnail_url
 
 logger = logging.getLogger(__name__)
 
@@ -74,16 +74,7 @@ def get_video_info(url: str) -> VideoInfo:
     if not thumb:
         thumb = info.get("thumbnail", "")
 
-    # Clean thumbnail URL to ensure it is hqdefault if it's YouTube
-    if thumb:
-        if "i.ytimg.com" in thumb or "img.youtube.com" in thumb:
-            for name in ("default", "mqdefault", "sddefault", "maxresdefault"):
-                if f"/{name}.jpg" in thumb:
-                    thumb = thumb.replace(f"/{name}.jpg", "/hqdefault.jpg")
-                    break
-                elif f"/{name}.webp" in thumb:
-                    thumb = thumb.replace(f"/{name}.webp", "/hqdefault.jpg")
-                    break
+    thumb = normalize_youtube_thumbnail_url(thumb or "")
 
     return VideoInfo(
         title=info.get("title", "Unknown"),
@@ -101,66 +92,6 @@ def get_video_info(url: str) -> VideoInfo:
         subtitles=info.get("subtitles") or {},
         file_size_approx=file_size_approx,
     )
-
-
-# ──────────────────────────────────────────────
-# Thumbnail Download
-# ──────────────────────────────────────────────
-
-def download_thumbnail(url: str, output_dir: str | Path = ".") -> Path | None:
-    """Download the thumbnail image for a YouTube video.
-
-    Args:
-        url: YouTube video URL.
-        output_dir: Destination directory.
-
-    Returns:
-        Path to the saved thumbnail file, or None on failure.
-    """
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    opts: dict[str, Any] = with_base_ydl_opts({
-        "skip_download": True,
-        "writethumbnail": True,
-        "outtmpl": {"default": "%(title)s.%(ext)s"},
-        "paths": {"home": str(output_path)},
-        # Convert to jpg
-        "postprocessors": [
-            {
-                "key": "FFmpegThumbnailsConvertor",
-                "format": "jpg",
-            }
-        ],
-    })
-
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-
-        if info is None:
-            return None
-
-        title = info.get("title", "video")
-
-        # Look for thumbnail files (yt-dlp saves as .jpg, .webp, .png, etc.)
-        for ext in ("jpg", "jpeg", "png", "webp"):
-            candidate = output_path / f"{title}.{ext}"
-            if candidate.exists():
-                logger.info("Thumbnail saved: %s", candidate)
-                return candidate
-
-        # Fallback: scan for any image file with the title
-        for img_file in output_path.iterdir():
-            if img_file.stem == title and img_file.suffix.lstrip(".") in (
-                "jpg", "jpeg", "png", "webp",
-            ):
-                return img_file
-
-    except Exception:
-        logger.exception("Failed to download thumbnail for %s", url)
-
-    return None
 
 
 # ──────────────────────────────────────────────

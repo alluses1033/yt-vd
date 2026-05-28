@@ -91,7 +91,6 @@ def download_playlist(
         fmt=fmt,
         workers=parallel,
         output_dir=final_output_dir,
-        playlist_title=info.title,
         **kwargs,
     )
     return results
@@ -134,7 +133,6 @@ def download_channel(
         fmt=fmt,
         workers=parallel,
         output_dir=final_output_dir,
-        playlist_title=info.title,
         **kwargs,
     )
     return results

@@ -189,7 +189,11 @@ def build_ydl_opts(
     if cookies_from_browser:
         opts["cookiesfrombrowser"] = (cookies_from_browser,)
     elif cookies_file:
-        opts["cookiefile"] = cookies_file
+        cookie_path = Path(cookies_file).expanduser()
+        if cookie_path.exists() and cookie_path.is_file():
+            opts["cookiefile"] = str(cookie_path)
+        else:
+            logger.warning("Cookies file not found or invalid: %r — ignoring", cookies_file)
 
     # Rate limiting
     if rate_limit:
@@ -206,7 +210,11 @@ def build_ydl_opts(
 
     # Proxy
     if proxy:
-        opts["proxy"] = proxy
+        proxy_value = str(proxy).strip()
+        if "://" in proxy_value:
+            opts["proxy"] = proxy_value
+        else:
+            logger.warning("Invalid proxy value %r — expected scheme://host:port", proxy)
 
     return opts
 

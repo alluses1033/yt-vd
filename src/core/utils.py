@@ -172,6 +172,20 @@ def format_file_size(size_bytes: int | float) -> str:
     return f"{value:.2f} PiB"
 
 
+def normalize_youtube_thumbnail_url(url: str) -> str:
+    """Normalize YouTube thumbnail URL to a stable high-quality variant."""
+    if not url:
+        return ""
+
+    if "i.ytimg.com" in url or "img.youtube.com" in url:
+        for name in ("default", "mqdefault", "sddefault", "maxresdefault"):
+            if f"/{name}.jpg" in url:
+                return url.replace(f"/{name}.jpg", "/hqdefault.jpg")
+            if f"/{name}.webp" in url:
+                return url.replace(f"/{name}.webp", "/hqdefault.jpg")
+    return url
+
+
 # ──────────────────────────────────────────────
 # Dependency Checking
 # ──────────────────────────────────────────────
@@ -203,54 +217,9 @@ def check_ffmpeg() -> str | None:
         return None
 
 
-def check_dependencies() -> dict[str, str | None]:
-    """Check availability of external dependencies.
-
-    Returns:
-        A dict mapping dependency names to version strings (or None if missing).
-        Currently checks: ``ffmpeg``.
-    """
-    deps: dict[str, str | None] = {
-        "ffmpeg": check_ffmpeg(),
-    }
-
-    # Check for a JavaScript runtime (optional — used by some yt-dlp extractors)
-    for js_runtime in ("node", "deno", "bun"):
-        if (js_path := shutil.which(js_runtime)):
-            try:
-                result = subprocess.run(
-                    [js_path, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-                deps["js_runtime"] = f"{js_runtime} {result.stdout.strip()}"
-                break
-            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-                continue
-    else:
-        deps["js_runtime"] = None
-
-    return deps
-
-
 # ──────────────────────────────────────────────
 # Filesystem Helpers
 # ──────────────────────────────────────────────
-
-def ensure_dir(path: str | Path) -> Path:
-    """Create a directory (and parents) if it doesn't exist.
-
-    Args:
-        path: The directory path to ensure exists.
-
-    Returns:
-        The resolved Path object.
-    """
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 

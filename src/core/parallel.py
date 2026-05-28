@@ -111,7 +111,6 @@ def download_parallel(
     fmt: str = "mp4",
     workers: int = DEFAULT_PARALLEL_WORKERS,
     output_dir: str | Path = ".",
-    playlist_title: str = "",
     on_video_done: Callable[[int, DownloadResult], None] | None = None,
     on_progress: Callable[[int, ProgressInfo], None] | None = None,
     **kwargs: Any,
@@ -127,7 +126,6 @@ def download_parallel(
         fmt: Container format.
         workers: Thread count.
         output_dir: Output directory.
-        playlist_title: Title of the playlist.
         on_video_done: Callback for individual video completions.
         on_progress: Progress update callback.
         kwargs: Additional options.

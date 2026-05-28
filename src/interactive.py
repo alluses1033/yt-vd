@@ -24,6 +24,8 @@ from constants import (
 from core.display import console
 from core.display import show_result_panel as _show_result
 from core.display import show_summary_table as _show_results_table
+from core.presentation import build_entry_titles, render_result_thumbnails
+from core.utils import format_duration
 
 # ── Questionary theming ──────────────────────────────────────────────────────
 
@@ -260,7 +262,7 @@ def _action_download_playlist() -> None:
         start_idx = max(0, start - 1)
         end_idx = end if end is not None else len(info.entries)
         sliced_entries = info.entries[start_idx:end_idx]
-        titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+        titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
 
     from core.progress import MultiTerminalProgress
 
@@ -384,23 +386,8 @@ def _action_search() -> None:
 
         ansi_thumbnails = {}
         if is_term and results:
-            from concurrent.futures import ThreadPoolExecutor
-
-            from core.thumbnail_renderer import get_ansi_thumbnail
-
             with console.status("[cyan]Rendering thumbnails...[/]"):
-                with ThreadPoolExecutor(max_workers=min(10, len(results))) as executor:
-                    futures = {
-                        executor.submit(get_ansi_thumbnail, entry.thumbnail_url, 32, 12): entry
-                        for entry in results
-                        if entry.thumbnail_url
-                    }
-                    for future in futures:
-                        entry = futures[future]
-                        try:
-                            ansi_thumbnails[entry.url] = future.result()
-                        except Exception:
-                            ansi_thumbnails[entry.url] = None
+                ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
 
         from rich.table import Table
         from rich.text import Text
@@ -422,9 +409,7 @@ def _action_search() -> None:
 
         for i, entry in enumerate(results, 1):
             dur = entry.duration
-            m, s = divmod(int(dur), 60)
-            h, m = divmod(m, 60)
-            dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}" if dur else "N/A"
+            dur_str = format_duration(dur) if dur else "N/A"
             views = entry.view_count
             views_str = f"{views:,}" if views else "N/A"
             entry_url = entry.url or "N/A"
@@ -509,7 +494,7 @@ def _action_search() -> None:
                             start_idx = max(0, start - 1)
                             end_idx = end if end is not None else len(info.entries)
                             sliced_entries = info.entries[start_idx:end_idx]
-                            titles = [entry.get("title") or f"Video {idx}" for idx, entry in enumerate(sliced_entries, start_idx + 1)]
+                            titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
 
                         from core.progress import MultiTerminalProgress
 
@@ -601,10 +586,7 @@ def _action_video_info() -> None:
         console.print("[red]Could not retrieve video information.[/]")
         return
 
-    dur = info.duration
-    m, s = divmod(int(dur), 60)
-    h, m = divmod(m, 60)
-    dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+    dur_str = format_duration(info.duration) if info.duration else "N/A"
     views_str = f"{info.view_count:,}" if info.view_count else "N/A"
 
     from rich.table import Table

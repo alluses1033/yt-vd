@@ -24,6 +24,5 @@ if __name__ == "__main__":
     try:
         app()
     except KeyboardInterrupt:
-        import os
         print("\n⚠ Interrupted — cleaning up...", file=sys.stderr)
-        os._exit(130)
+        raise SystemExit(130)
