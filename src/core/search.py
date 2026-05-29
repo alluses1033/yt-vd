@@ -124,6 +124,7 @@ def search_youtube(
             combined_entries.append(video_entries[i])
         if i < len(playlist_entries):
             combined_entries.append(playlist_entries[i])
+    combined_entries = _dedupe_entries(combined_entries)
 
     # Paginate by slicing the combined results
     start_idx = (page - 1) * max_results
@@ -204,3 +205,15 @@ def _entry_url(entry: dict[str, Any]) -> str:
             return f"https://www.youtube.com/playlist?list={video_id}"
         return f"https://www.youtube.com/watch?v={video_id}"
     return ""
+
+
+def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for entry in entries:
+        key = _entry_url(entry) or str(entry.get("id") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    return deduped

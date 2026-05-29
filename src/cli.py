@@ -6,6 +6,7 @@ with no arguments launches the interactive questionary-based menu.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -20,8 +21,11 @@ from constants import (
     DownloadStatus,
 )
 from core.display import console, show_result_panel, show_summary_table
-from core.presentation import build_entry_titles, render_result_thumbnails
+from core.presentation import render_result_thumbnails
+from core.usecases import channel_titles_from_info, playlist_titles_from_info
 from core.utils import format_duration, format_file_size
+
+logger = logging.getLogger(__name__)
 
 # ── Typer app ────────────────────────────────────────────────────────────────
 
@@ -271,17 +275,12 @@ def playlist(
                 info_table.add_row("Total Duration", format_duration(info.total_duration))
             console.print(info_table)
             console.print()
-    except Exception:
-        pass  # Non-fatal; proceed with download
+    except Exception as exc:
+        logger.debug("Playlist info preview unavailable for %s: %s", url, exc)
 
     from core.progress import MultiTerminalProgress
 
-    titles = []
-    if info and info.entries:
-        start_idx = max(0, start - 1)
-        end_idx = end if end is not None else len(info.entries)
-        sliced_entries = info.entries[start_idx:end_idx]
-        titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
+    titles = playlist_titles_from_info(info, start=start, end=end)
 
     with MultiTerminalProgress(console, titles) as progress_callback:
         results = download_playlist(
@@ -429,14 +428,13 @@ def channel(
     from core.playlist import download_channel, get_playlist_info
     from core.progress import MultiTerminalProgress
 
+    info = None
     titles = []
     try:
         info = get_playlist_info(url)
-        if info and info.entries:
-            selected_entries = info.entries[:last]
-            titles = build_entry_titles(selected_entries, start_index=1)
-    except Exception:
-        pass
+        titles = channel_titles_from_info(info, last_n=last)
+    except Exception as exc:
+        logger.debug("Channel info preview unavailable for %s: %s", url, exc)
 
     with MultiTerminalProgress(console, titles) as progress_callback:
         results = download_channel(
@@ -729,12 +727,7 @@ def search(
                             except Exception as e:
                                 console.print(f"[red]Error fetching playlist info: {e}[/]")
 
-                        titles = []
-                        if info and info.entries:
-                            start_idx = max(0, start - 1)
-                            end_idx = end if end is not None else len(info.entries)
-                            sliced_entries = info.entries[start_idx:end_idx]
-                            titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
+                        titles = playlist_titles_from_info(info, start=start, end=end)
 
                         from core.progress import MultiTerminalProgress
 

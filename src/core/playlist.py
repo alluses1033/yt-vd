@@ -13,6 +13,7 @@ from constants import (
 )
 from core.downloader import extract_info
 from core.parallel import download_parallel
+from core.usecases import slice_entries
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,8 @@ def download_playlist(
         logger.warning("No entries found in playlist: %s", url)
         return []
 
-    # Slice entries based on 1-based start and end indices
-    start_idx = max(0, start - 1)
+    sliced_entries, start_idx = slice_entries(info.entries, start=start, end=end)
     end_idx = end if end is not None else len(info.entries)
-    sliced_entries = info.entries[start_idx:end_idx]
 
     logger.info(
         "Downloading playlist range %d to %d (total %d selected entries)",

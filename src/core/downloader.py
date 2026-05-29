@@ -39,6 +39,8 @@ from core.subtitles import cleanup_leftover_subtitles, normalize_subtitle_langua
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)
+_SUPPORTED_COOKIES_BROWSERS = {"chrome", "chromium", "firefox", "edge", "safari", "opera", "brave", "vivaldi"}
+_SUPPORTED_PROXY_SCHEMES = ("http://", "https://", "socks4://", "socks4a://", "socks5://", "socks5h://")
 
 # Precompiled regex for download_clip time parsing (HH:MM:SS / MM:SS / float)
 _NUMERIC_TIME_PATTERN = re.compile(r"^\d+(\.\d+)?$")
@@ -187,7 +189,11 @@ def build_ydl_opts(
 
     # Cookie sources for age-restricted / private videos
     if cookies_from_browser:
-        opts["cookiesfrombrowser"] = (cookies_from_browser,)
+        browser_name = str(cookies_from_browser).strip().lower()
+        if browser_name in _SUPPORTED_COOKIES_BROWSERS:
+            opts["cookiesfrombrowser"] = (browser_name,)
+        else:
+            logger.warning("Unsupported browser for cookies import: %r — ignoring", cookies_from_browser)
     elif cookies_file:
         cookie_path = Path(cookies_file).expanduser()
         if cookie_path.exists() and cookie_path.is_file():
@@ -211,7 +217,7 @@ def build_ydl_opts(
     # Proxy
     if proxy:
         proxy_value = str(proxy).strip()
-        if "://" in proxy_value:
+        if proxy_value.lower().startswith(_SUPPORTED_PROXY_SCHEMES):
             opts["proxy"] = proxy_value
         else:
             logger.warning("Invalid proxy value %r — expected scheme://host:port", proxy)

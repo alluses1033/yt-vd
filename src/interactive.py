@@ -7,6 +7,7 @@ the core engine, re-using the same Rich output helpers as the CLI commands.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,8 +25,11 @@ from constants import (
 from core.display import console
 from core.display import show_result_panel as _show_result
 from core.display import show_summary_table as _show_results_table
-from core.presentation import build_entry_titles, render_result_thumbnails
+from core.presentation import render_result_thumbnails
+from core.usecases import playlist_titles_from_info
 from core.utils import format_duration
+
+logger = logging.getLogger(__name__)
 
 # ── Questionary theming ──────────────────────────────────────────────────────
 
@@ -230,7 +234,10 @@ def _action_download_playlist() -> None:
         "End index (leave blank for all):", default="", style=CUSTOM_STYLE
     ).ask()
 
-    start = max(1, int(start_raw or 1))
+    try:
+        start = max(1, int(start_raw or 1))
+    except (TypeError, ValueError):
+        start = 1
     end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
 
     subs, sub_lang = _ask_subtitles()
@@ -256,13 +263,9 @@ def _action_download_playlist() -> None:
             info = get_playlist_info(url)
         except Exception as e:
             console.print(f"[red]Error fetching playlist info: {e}[/]")
+            logger.debug("Interactive playlist info preview unavailable for %s: %s", url, e)
 
-    titles = []
-    if info and info.entries:
-        start_idx = max(0, start - 1)
-        end_idx = end if end is not None else len(info.entries)
-        sliced_entries = info.entries[start_idx:end_idx]
-        titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
+    titles = playlist_titles_from_info(info, start=start, end=end)
 
     from core.progress import MultiTerminalProgress
 
@@ -474,7 +477,10 @@ def _action_search() -> None:
                             "End index (leave blank for all):", default="", style=CUSTOM_STYLE
                         ).ask()
 
-                        start = max(1, int(start_raw or 1))
+                        try:
+                            start = max(1, int(start_raw or 1))
+                        except (TypeError, ValueError):
+                            start = 1
                         end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
 
                         subs, sub_lang = _ask_subtitles()
@@ -488,13 +494,9 @@ def _action_search() -> None:
                                 info = get_playlist_info(selected_url)
                             except Exception as e:
                                 console.print(f"[red]Error fetching playlist info: {e}[/]")
+                                logger.debug("Interactive selected playlist info unavailable for %s: %s", selected_url, e)
 
-                        titles = []
-                        if info and info.entries:
-                            start_idx = max(0, start - 1)
-                            end_idx = end if end is not None else len(info.entries)
-                            sliced_entries = info.entries[start_idx:end_idx]
-                            titles = build_entry_titles(sliced_entries, start_index=start_idx + 1)
+                        titles = playlist_titles_from_info(info, start=start, end=end)
 
                         from core.progress import MultiTerminalProgress
 
