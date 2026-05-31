@@ -160,17 +160,18 @@ def extract_audio(
         tracker.title = result.title
         tracker.video_id = str(info.get("id") or "")
 
-        # Find downloaded file using shared helper
+        # Find downloaded file
         from core.utils import find_output_file
-        final_path = find_output_file(info, output_path, audio_format)
-        if final_path and final_path.exists():
-            if verify_file_integrity(final_path):
-                result.file_path = final_path
-                result.file_size = final_path.stat().st_size
-            else:
-                logger.warning("File integrity check failed for %s", final_path)
-                result.file_path = final_path
-                result.file_size = final_path.stat().st_size
+        temp_file_path = find_output_file(info, safety.temp_dir, audio_format)
+        if temp_file_path and temp_file_path.exists():
+            is_valid = verify_file_integrity(temp_file_path)
+            if not is_valid:
+                logger.warning("File integrity check failed for %s", temp_file_path)
+            
+            # Atomically move from temp to final directory
+            final_path = safety.move_to_final(temp_file_path)
+            result.file_path = final_path
+            result.file_size = final_path.stat().st_size
 
         result.status = DownloadStatus.COMPLETED
         result.elapsed_seconds = time.monotonic() - start_time

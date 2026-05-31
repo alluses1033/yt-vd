@@ -16,8 +16,52 @@ permissions:
   contents: write
 
 jobs:
+  bump-version:
+    name: Bump Version (Semantic)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run bump version script
+        id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          OUTPUT=$(python scripts/bump_version.py)
+          echo "$OUTPUT"
+          
+          NEW_VERSION=$(echo "$OUTPUT" | grep "^NEW_VERSION=" | cut -d'=' -f2)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit and push tag
+        if: steps.bump.outputs.new_version != ''
+        run: |
+          NEW_VER="${{ steps.bump.outputs.new_version }}"
+          if ! git diff --quiet pyproject.toml; then
+            git add pyproject.toml
+            git commit -m "chore(release): bump version to v$NEW_VER [skip ci]"
+            git push origin main
+          fi
+          
+          if ! git rev-parse "v$NEW_VER" >/dev/null 2>&1; then
+            git tag "v$NEW_VER"
+            git push origin "v$NEW_VER"
+          fi
+
   create-release:
     name: Create GitHub release
+    if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.determine-tag.outputs.tag_name }}
@@ -45,11 +89,12 @@ jobs:
           gh release create "$TAG_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "yt-vd $TAG_NAME" \
-            --notes "Automated release of yt-vd ($TAG_NAME) built from commit $GITHUB_SHA" \
+            --notes "Release of yt-vd $TAG_NAME built from commit $GITHUB_SHA" \
             --latest
 
   build:
     name: Build ${{ matrix.name }}
+    if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     needs: create-release
     strategy:
@@ -58,52 +103,42 @@ jobs:
         include:
           - name: windows
             os: windows-latest
-            cli_asset: yt-vd.exe
+            cli_asset: yt-vd-windows.exe
+            cli_dest: dist/yt-vd.exe
           - name: linux
             os: ubuntu-latest
-            cli_asset: yt-vd
+            cli_asset: yt-vd-linux
+            cli_dest: dist/yt-vd
+          - name: macos
+            os: macos-latest
+            cli_asset: yt-vd-macos
+            cli_dest: dist/yt-vd
 
     steps:
       - name: Checkout source
-        shell: bash
-        run: |
-          git init .
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "$GITHUB_REF"
-          git checkout --force FETCH_HEAD
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install dependencies
-        shell: bash
         run: |
-          set -euo pipefail
-          if command -v python3 >/dev/null 2>&1; then
-            PYTHON=python3
-          else
-            PYTHON=python
-          fi
-
-          "$PYTHON" --version
-          "$PYTHON" -m pip install --upgrade pip
-          "$PYTHON" -m pip install . "pyinstaller>=6.11.0"
+          python -m pip install --upgrade pip
+          python -m pip install . "pyinstaller>=6.11.0"
 
       - name: Build executables
-        shell: bash
         run: |
-          set -euo pipefail
-          if command -v python3 >/dev/null 2>&1; then
-            PYTHON=python3
-          else
-            PYTHON=python
-          fi
+          python -m PyInstaller yt-vd.spec --clean --noconfirm
 
-          "$PYTHON" -m PyInstaller yt-vd.spec --clean --noconfirm
-
-      - name: Upload release assets
+      - name: Rename and Upload release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
         run: |
+          mv "${{ matrix.cli_dest }}" "dist/${{ matrix.cli_asset }}"
           gh release upload "$TAG_NAME" \
             "dist/${{ matrix.cli_asset }}" \
             --repo "$GITHUB_REPOSITORY" \

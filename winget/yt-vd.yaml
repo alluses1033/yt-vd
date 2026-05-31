@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+
+PackageIdentifier: alluses1033.yt-vd
+PackageVersion: 1.0.2
+PackageName: yt-vd
+Publisher: dhiraj-rajput
+License: MIT
+ShortDescription: High-performance terminal YouTube downloader for videos, playlists, audio, and chapters.
+Moniker: yt-vd
+Tags:
+  - youtube
+  - downloader
+  - video
+  - cli
+  - playlist
+  - audio
+Installers:
+  - Architecture: x64
+    InstallerType: portable
+    InstallerUrl: https://github.com/alluses1033/yt-vd/releases/download/v1.0.2/yt-vd-windows.exe
+    # SHA256 can be computed for the released windows binary
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    Commands:
+      - yt-vd
+ManifestType: singleton
+ManifestVersion: 1.6.0

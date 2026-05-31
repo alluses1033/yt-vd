@@ -350,8 +350,8 @@ def download_video(
     # Skip if already in history
     if skip_downloaded:
         try:
-            from core.history import DownloadHistory
-            if DownloadHistory().exists(url):
+            from core.history import history_exists
+            if history_exists(url):
                 logger.info("Skipping already-downloaded URL: %s", url)
                 result.status = DownloadStatus.SKIPPED
                 result.error_message = "Already downloaded (--skip-downloaded)"
@@ -450,27 +450,31 @@ def download_video(
             retriable_checker=_is_retriable,
         )
 
-        # Find the downloaded file using shared helper
+        # Find the downloaded file
         from core.utils import find_output_file
-        final_path = find_output_file(download_info, output_path)
+        search_dir = safety.temp_dir if use_temp_dir else output_path
+        final_file_path = find_output_file(download_info, search_dir)
         title_value = download_info.get("title") or result.title
         result.title = title_value
         result.quality = effective_quality
         result.format = video_format
 
-        if final_path and final_path.exists():
+        if final_file_path and final_file_path.exists():
             # Verify integrity
-            if verify_file_integrity(final_path):
-                result.file_path = final_path
-                result.file_size = final_path.stat().st_size
-                result.status = DownloadStatus.COMPLETED
-                tracker.set_status(DownloadStatus.COMPLETED)
+            is_valid = verify_file_integrity(final_file_path)
+            if not is_valid:
+                logger.warning("File integrity check failed for %s", final_file_path)
+            
+            if use_temp_dir:
+                # Atomically move from temp to final directory
+                final_path = safety.move_to_final(final_file_path)
             else:
-                logger.warning("File integrity check failed for %s", final_path)
-                result.file_path = final_path
-                result.file_size = final_path.stat().st_size
-                result.status = DownloadStatus.COMPLETED  # still usable
-                tracker.set_status(DownloadStatus.COMPLETED)
+                final_path = final_file_path
+
+            result.file_path = final_path
+            result.file_size = final_path.stat().st_size
+            result.status = DownloadStatus.COMPLETED
+            tracker.set_status(DownloadStatus.COMPLETED)
 
             # Clean up subtitles if they were embedded
             if embed_subs:

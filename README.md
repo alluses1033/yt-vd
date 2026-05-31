@@ -21,28 +21,41 @@ Repository: <https://github.com/alluses1033/yt-vd>
 
 ## Quick Install
 
-These installers download the latest release binaries from this repository.
+### Windows
+You can install the compiled standalone binary via **Winget** or PowerShell:
 
-### Windows PowerShell
+* **Via Winget (Recommended):**
+  ```cmd
+  winget install alluses1033.yt-vd
+  ```
 
-```powershell
-irm https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.ps1 | iex
-```
+* **Via PowerShell bootstrap script:**
+  ```powershell
+  irm https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.ps1 | iex
+  ```
+  *(Then open a new PowerShell window and run `yt-vd --help`)*
 
-Then open a new PowerShell window:
+### macOS
+You can install using **Homebrew** or the shell script:
 
-```powershell
-yt-vd --help
-```
+* **Via Homebrew Tap:**
+  ```bash
+  brew tap alluses1033/tap
+  brew install yt-vd
+  ```
+
+* **Via installation script:**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.sh | sh
+  ```
 
 ### Linux
-
+Install the standalone binary via curl:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.sh | sh
 ```
 
-If `yt-vd` is not found after install, add this to your shell profile:
-
+If `yt-vd` is not found after running the script on Linux/macOS, add this to your shell profile (e.g. `~/.bashrc`, `~/.zshrc`):
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
@@ -216,70 +229,49 @@ If the exact quality is not available, yt-vd falls back to the closest available
 
 ## Release Assets
 
-The install scripts expect these files on the latest GitHub release:
+The automatic release pipeline outputs these platform-specific compiled executables:
 
-| Platform | Asset |
+| Platform | Asset Name |
 | --- | --- |
-| Windows CLI | `yt-vd.exe` |
-| Linux CLI | `yt-vd` |
+| Windows (x64) | `yt-vd-windows.exe` |
+| Linux (x64) | `yt-vd-linux` |
+| macOS (x64/Apple Silicon) | `yt-vd-macos` |
 
-## Build Binaries
+## Build Binaries Locally
 
 ### Windows
-
 ```powershell
 .\build.bat
 ```
 
 ### Linux / macOS
-
 ```bash
 chmod +x build.sh
 ./build.sh
 ```
+Build outputs are written to `dist/`.
 
-Build output is written to `dist/`.
+## Semantic Versioning & Conventional Commits
 
-## Publish a Release
+This project uses an automated semantic release pipeline. When you push to the `main` branch, the workflow inspects your commit messages to determine the version bump:
+- **Major bump** (e.g. `1.0.2` -> `2.0.0`): Commits containing `BREAKING CHANGE` or `!` suffix in the header (e.g. `feat!: require ffmpeg`).
+- **Minor bump** (e.g. `1.0.2` -> `1.1.0`): Commits starting with `feat:` (features).
+- **Patch bump** (e.g. `1.0.2` -> `1.0.3`): Commits starting with `fix:`, `refactor:`, `perf:`, `chore:`, `docs:`, `test:`, etc.
 
-The repository includes a GitHub Actions workflow that builds Windows and Linux binaries when a version tag is pushed.
-
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-The workflow publishes these assets to the GitHub release:
-
-- `yt-vd.exe`
-- `yt-vd`
-
-The PowerShell and Linux installers download from the latest release.
+This automatically updates `pyproject.toml`, pushes the commit, and tags the repository (triggering the binary builder workflow).
 
 ## Development Checks
-
 ```bash
 uv run ruff check src tests
 uv run pytest
 ```
 
 ## Uninstall
-
-### Windows
-
-Delete:
-
-```powershell
-$env:LOCALAPPDATA\Programs\yt-vd
-```
-
-Then remove that folder from your user `Path` environment variable.
-
-### Linux / macOS
-
+To uninstall `yt-vd` and fully clean up configuration files, database logs, and PATH environment entries, run:
 ```bash
-rm -f ~/.local/bin/yt-vd
+yt-vd uninstall
 ```
+*(Alternatively, manually delete the local installation dir `~/.local/bin/yt-vd` on UNIX or `%LOCALAPPDATA%\Programs\yt-vd` on Windows).*
 
 ## Troubleshooting
 

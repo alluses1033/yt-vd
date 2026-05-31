@@ -6,13 +6,17 @@ install_dir="${HOME}/.local/bin"
 base_url="https://github.com/${repo}/releases/download/latest"
 
 os="$(uname -s)"
-if [ "$os" != "Linux" ]; then
-    printf '%s\n' "This binary installer currently supports Linux."
-    printf '%s\n' "For macOS, install from source with: uv sync && uv run yt-vd --help"
+if [ "$os" = "Linux" ]; then
+    asset_name="yt-vd-linux"
+elif [ "$os" = "Darwin" ]; then
+    asset_name="yt-vd-macos"
+else
+    printf '%s\n' "This binary installer supports Linux and macOS."
+    printf '%s\n' "For other platforms, please install from source."
     exit 1
 fi
 
-printf '%s\n' "Installing yt-vd..."
+printf '%s\n' "Installing yt-vd for $os ($asset_name)..."
 mkdir -p "$install_dir"
 
 if [ -f "$install_dir/yt-vd" ]; then
@@ -36,7 +40,7 @@ download() {
     fi
 }
 
-download "${base_url}/yt-vd" "${install_dir}/yt-vd"
+download "${base_url}/${asset_name}" "${install_dir}/yt-vd"
 chmod +x "${install_dir}/yt-vd"
 
 case ":$PATH:" in

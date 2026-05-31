@@ -88,7 +88,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 # Download CLI
 $CliAsset = Get-ReleaseAsset `
     -Release $Release `
-    -Name "yt-vd.exe"
+    -Name "yt-vd-windows.exe"
 
 Download-Asset `
     -Asset $CliAsset `

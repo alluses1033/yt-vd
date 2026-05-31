@@ -1391,7 +1391,22 @@ def _wrapped_app_call(*args: Any, **kwargs: Any) -> Any:
     except KeyboardInterrupt:
         import os
         import sys
-        print("\n⚠ Interrupted by user — forcing exit to terminate background threads...", file=sys.stderr)
+        print("\n⚠ Interrupted by user — cleaning up temporary files and forcing exit...", file=sys.stderr)
+        try:
+            output_dir = None
+            for i, arg in enumerate(sys.argv):
+                if arg in ("-o", "--output"):
+                    if i + 1 < len(sys.argv):
+                        output_dir = sys.argv[i + 1]
+                        break
+            if not output_dir:
+                from core.config import ConfigManager
+                output_dir = ConfigManager.get_instance().current.output_dir
+            if output_dir:
+                from core.fragment_safety import SafeDownloadManager
+                SafeDownloadManager(output_dir).cleanup_temp()
+        except Exception:
+            pass
         os._exit(130)
     except SystemExit as e:
         # Preserve normal exit semantics so cleanup/finally handlers can run.

@@ -70,6 +70,7 @@ class DownloadHistory:
     """
 
     __slots__ = ("_db_path", "_lock")
+    _initialized_paths: set[Path] = set()
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         """Initialize the history manager.
@@ -85,7 +86,9 @@ class DownloadHistory:
             self._db_path = data_dir / HISTORY_DB_NAME
 
         self._lock = threading.Lock()
-        self._initialize_db()
+        if self._db_path not in DownloadHistory._initialized_paths or not self._db_path.exists():
+            self._initialize_db()
+            DownloadHistory._initialized_paths.add(self._db_path)
 
     @property
     def db_path(self) -> Path:
@@ -435,5 +438,14 @@ def safe_add_to_history(result: DownloadResult) -> None:
         add_to_history(result)
     except Exception as e:
         logger.debug("Failed to write download history: %s", e)
+
+
+def history_exists(url: str) -> bool:
+    """Check if a URL has been previously downloaded using the default manager."""
+    try:
+        return _get_history_manager().exists(url)
+    except Exception as e:
+        logger.debug("Failed to check download history: %s", e)
+        return False
 
 

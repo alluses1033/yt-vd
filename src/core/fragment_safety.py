@@ -94,7 +94,7 @@ class SafeDownloadManager:
         return {
             "paths": {
                 "temp": str(self._temp_dir),
-                "home": str(self._output_dir),
+                "home": str(self._temp_dir),
             }
         }
 
@@ -117,6 +117,13 @@ class SafeDownloadManager:
 
         dest_name = final_name or temp_file.name
         final_path = self._output_dir / dest_name
+
+        try:
+            if temp_file.resolve() == final_path.resolve():
+                logger.debug("File is already at destination: %s", final_path)
+                return final_path
+        except Exception:
+            pass
 
         # Avoid overwriting — append number suffix if needed
         if final_path.exists():

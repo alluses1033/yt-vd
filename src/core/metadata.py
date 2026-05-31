@@ -19,7 +19,7 @@ from constants import (
 )
 from core.downloader import build_ydl_opts, extract_info
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
-from core.utils import normalize_youtube_thumbnail_url
+from core.utils import normalize_youtube_thumbnail_url, sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,7 @@ def download_by_chapters(
 
     for i, chapter in enumerate(chapters, start=1):
         chapter_title = chapter["title"]
+        safe_chapter_title = sanitize_filename(chapter_title)
         start = chapter["start_time"]
         end = chapter["end_time"]
 
@@ -179,7 +180,7 @@ def download_by_chapters(
             output_dir=output_dir,
             quality=quality,
             video_format=video_format,
-            output_template=f"{i:02d} - {chapter_title}.%(ext)s",
+            output_template=f"{i:02d} - {safe_chapter_title}.%(ext)s",
             progress_hooks=[hook],
             extra_opts={
                 "download_ranges": _make_chapter_range(start, end),

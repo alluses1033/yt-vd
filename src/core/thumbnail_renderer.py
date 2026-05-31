@@ -13,6 +13,7 @@ import tempfile
 import urllib.request
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlparse
 
 from PIL import Image
 from rich.segment import Segment
@@ -191,6 +192,24 @@ def _image_to_sixel(img: Image.Image) -> str:
     return f"\033P0;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
 
 
+def _is_safe_thumbnail_url(url: str) -> bool:
+    """Validate that the thumbnail URL belongs to a trusted YouTube/Google CDN domain."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        netloc = parsed.netloc.lower()
+        if ":" in netloc:
+            netloc = netloc.split(":")[0]
+        allowed_suffixes = (".youtube.com", ".ytimg.com", ".googleusercontent.com", ".ggpht.com")
+        allowed_exact = ("youtube.com", "youtu.be", "ytimg.com", "googleusercontent.com", "ggpht.com")
+        if netloc in allowed_exact or any(netloc.endswith(suffix) for suffix in allowed_suffixes):
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalImage | None:
     """Download thumbnail from URL and render it as a TerminalImage.
 
@@ -206,7 +225,7 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
     Returns:
         TerminalImage object, or None on failure.
     """
-    if not url or not url.startswith("http"):
+    if not url or not url.startswith("http") or not _is_safe_thumbnail_url(url):
         return None
 
     temp_file = None

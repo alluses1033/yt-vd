@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -13,6 +15,16 @@ from core.utils import format_file_size
 
 # Shared Console instance across the application
 console = Console()
+
+_ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def escape_text(text: str) -> str:
+    """Strip ANSI escape codes and escape Rich markup to prevent terminal/markup injection."""
+    if not text:
+        return ""
+    cleaned = _ANSI_ESCAPE.sub("", text)
+    return escape(cleaned)
 
 
 def show_result_panel(result: DownloadResult) -> None:
@@ -27,16 +39,21 @@ def show_result_panel(result: DownloadResult) -> None:
     size = format_file_size(result.file_size)
     elapsed = f"{result.elapsed_seconds:.1f}s" if result.elapsed_seconds else "N/A"
 
+    safe_title = escape_text(result.title or result.url)
+    safe_quality = escape_text(result.quality or "N/A")
+    safe_file_path = escape_text(str(result.file_path) if result.file_path else "N/A")
+    safe_error = escape_text(result.error_message) if result.error_message else ""
+
     body = (
-        f"[bold]{result.title or result.url}[/]\n\n"
+        f"[bold]{safe_title}[/]\n\n"
         f"  [bold]Status:[/]  [{style}]{result.status.value}[/{style}]\n"
-        f"  [bold]Quality:[/] {result.quality or 'N/A'}\n"
+        f"  [bold]Quality:[/] {safe_quality}\n"
         f"  [bold]Size:[/]    {size}\n"
         f"  [bold]Time:[/]    {elapsed}\n"
-        f"  [bold]File:[/]    {result.file_path or 'N/A'}"
+        f"  [bold]File:[/]    {safe_file_path}"
     )
     if result.error_message:
-        body += f"\n  [bold red]Error:[/]  {result.error_message}"
+        body += f"\n  [bold red]Error:[/]  {safe_error}"
 
     console.print()
     console.print(Panel(body, title=f"[bold {style}]Download Result[/]", border_style=style))
@@ -68,8 +85,8 @@ def show_summary_table(results: list[DownloadResult]) -> None:
         filename = Path(r.file_path).name if r.file_path else (r.title or r.url[:40])
         table.add_row(
             str(i),
-            filename,
-            r.quality or "N/A",
+            escape_text(filename),
+            escape_text(r.quality or "N/A"),
             format_file_size(r.file_size),
             f"[{s_style}]{r.status.value}[/{s_style}]",
             f"{r.elapsed_seconds:.1f}s" if r.elapsed_seconds else "N/A",
