@@ -216,12 +216,8 @@ def _action_download_video() -> None:
     _show_result(result)
 
 
-def _action_download_playlist() -> None:
-    """Collect inputs and download a playlist."""
-    url = _ask_url("Playlist URL")
-    if not url:
-        return
-
+def _download_playlist_interactive(url: str) -> None:
+    """Interactively configure and download a playlist."""
     quality = _ask_quality()
     fmt = _ask_video_format()
     output = _ask_output_dir()
@@ -299,6 +295,14 @@ def _action_download_playlist() -> None:
         )
 
     _show_results_table(results)
+
+
+def _action_download_playlist() -> None:
+    """Collect inputs and download a playlist."""
+    url = _ask_url("Playlist URL")
+    if not url:
+        return
+    _download_playlist_interactive(url)
 
 
 def _action_extract_audio() -> None:
@@ -465,70 +469,7 @@ def _action_search() -> None:
                     is_playlist = "[Playlist]" in selected.title or "playlist" in selected_url
 
                     if is_playlist:
-                        quality = _ask_quality()
-                        fmt = _ask_video_format()
-                        output = _ask_output_dir()
-                        parallel = _ask_parallel()
-
-                        start_raw = questionary.text(
-                            "Start index (default 1):", default="1", style=CUSTOM_STYLE
-                        ).ask()
-                        end_raw = questionary.text(
-                            "End index (leave blank for all):", default="", style=CUSTOM_STYLE
-                        ).ask()
-
-                        try:
-                            start = max(1, int(start_raw or 1))
-                        except (TypeError, ValueError):
-                            start = 1
-                        end = int(end_raw) if end_raw and end_raw.strip().isdigit() else None
-
-                        subs, sub_lang = _ask_subtitles()
-                        thumbnail = _ask_thumbnail()
-
-                        # Fetch playlist info first
-                        from core.playlist import download_playlist, get_playlist_info
-                        info = None
-                        with console.status("[cyan]Fetching playlist info...[/]"):
-                            try:
-                                info = get_playlist_info(selected_url)
-                            except Exception as e:
-                                console.print(f"[red]Error fetching playlist info: {e}[/]")
-                                logger.debug("Interactive selected playlist info unavailable for %s: %s", selected_url, e)
-
-                        titles = playlist_titles_from_info(info, start=start, end=end)
-
-                        from core.progress import MultiTerminalProgress
-
-                        if titles:
-                            with MultiTerminalProgress(console, titles) as progress_callback:
-                                results_dl = download_playlist(
-                                    url=selected_url,
-                                    quality=quality,
-                                    fmt=fmt,
-                                    output_dir=output,
-                                    start=start,
-                                    end=end,
-                                    parallel=parallel,
-                                    subtitles=subs,
-                                    sub_lang=sub_lang,
-                                    embed_thumbnail=thumbnail,
-                                    on_progress=progress_callback,
-                                )
-                        else:
-                            results_dl = download_playlist(
-                                url=selected_url,
-                                quality=quality,
-                                fmt=fmt,
-                                output_dir=output,
-                                start=start,
-                                end=end,
-                                parallel=parallel,
-                                subtitles=subs,
-                                sub_lang=sub_lang,
-                                embed_thumbnail=thumbnail,
-                            )
-                        _show_results_table(results_dl)
+                        _download_playlist_interactive(selected_url)
                     else:
                         quality = _ask_quality()
                         fmt = _ask_video_format()

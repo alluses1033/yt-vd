@@ -125,11 +125,6 @@ DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB
 # Output template for single videos
 SINGLE_VIDEO_TEMPLATE = "%(title)s.%(ext)s"
 
-# Output template for playlist videos (zero-padded index)
-PLAYLIST_VIDEO_TEMPLATE = "%(playlist_index|)03d - %(title)s.%(ext)s"
-
-# Output template for channel videos
-CHANNEL_VIDEO_TEMPLATE = "%(uploader)s/%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s"
 
 # Temp directory name for fragment assembly
 TEMP_DIR_NAME = ".yt-vd-temp"

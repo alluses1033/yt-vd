@@ -20,7 +20,13 @@ def show_manual() -> None:
         ("yt-vd download URL -s --sub-lang en", "Download video with subtitles"),
         ("yt-vd playlist URL -p 4", "Download a playlist with 4 workers"),
         ("yt-vd audio URL -f mp3 -b 320k", "Save audio only"),
+        ("yt-vd clip URL --start 01:00 --end 02:30", "Download a specific time range"),
+        ("yt-vd chapters URL", "Download a video split by its chapters"),
+        ("yt-vd info URL", "View video metadata and available qualities"),
         ("yt-vd search \"query\"", "Search YouTube from the terminal"),
+        ("yt-vd batch FILE", "Download multiple URLs from a text file"),
+        ("yt-vd config [--set KEY=VALUE] [--reset]", "View or modify configuration"),
+        ("yt-vd history [--clear] [--export csv|json]", "View or manage download history"),
         ("yt-vd COMMAND --help", "Show options for one command"),
     ]
 

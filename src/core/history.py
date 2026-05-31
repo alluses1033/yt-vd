@@ -340,14 +340,15 @@ class DownloadHistory:
         Returns:
             Matching history records.
         """
-        like_query = f"%{query}%"
+        escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_query = f"%{escaped_query}%"
         with self._lock, self._connect() as conn:
             cursor = conn.execute(
                 """
                 SELECT id, url, video_id, title, quality, format,
                        file_path, file_size, duration, downloaded_at
                 FROM download_history
-                WHERE title LIKE ? OR url LIKE ?
+                WHERE title LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\'
                 ORDER BY downloaded_at DESC
                 LIMIT ?
                 """,
@@ -422,5 +423,17 @@ def add_to_history(result: DownloadResult) -> int:
         The row ID of the inserted record, or -1 if skipped.
     """
     return _get_history_manager().add(result)
+
+
+def safe_add_to_history(result: DownloadResult) -> None:
+    """Log a completed download to the default history manager, suppressing errors.
+
+    Args:
+        result: The download result to record.
+    """
+    try:
+        add_to_history(result)
+    except Exception as e:
+        logger.debug("Failed to write download history: %s", e)
 
 

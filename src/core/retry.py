@@ -5,13 +5,11 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from constants import RETRY_BACKOFF_FACTOR, DownloadStatus
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 def retry_operation[T](

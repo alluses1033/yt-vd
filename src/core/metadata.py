@@ -59,22 +59,9 @@ def get_video_info(url: str) -> VideoInfo:
     # Approximate file size (sum of best video + best audio)
     file_size_approx = _estimate_file_size(formats)
 
-    # Parse thumbnail url: sort by resolution descending to get highest quality
-    thumb = None
-    if info.get("thumbnails"):
-        thumbs = info.get("thumbnails")
-        if isinstance(thumbs, list) and len(thumbs) > 0:
-            def get_res(t: dict[str, Any]) -> int:
-                w = t.get("width") or 0
-                h = t.get("height") or 0
-                return w * h
-            sorted_thumbs = sorted(thumbs, key=get_res, reverse=True)
-            if sorted_thumbs:
-                thumb = sorted_thumbs[0].get("url")
-    if not thumb:
-        thumb = info.get("thumbnail", "")
-
-    thumb = normalize_youtube_thumbnail_url(thumb or "")
+    # Parse thumbnail url using shared helper
+    from core.utils import get_best_thumbnail_url
+    thumb = get_best_thumbnail_url(info)
 
     return VideoInfo(
         title=info.get("title", "Unknown"),
@@ -153,6 +140,10 @@ def download_by_chapters(
     video_format = kwargs.pop("fmt", video_format)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+
+    from core.utils import check_ffmpeg
+    if not check_ffmpeg():
+        raise RuntimeError("ffmpeg is required for chapter downloads.")
 
     chapters = get_chapters(url)
     if not chapters:

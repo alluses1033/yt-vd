@@ -171,25 +171,29 @@ def download(
     from core.downloader import download_video
     from core.progress import TerminalProgress
 
-    with TerminalProgress(console, "Download") as progress_callback:
-        result = download_video(
-            url=url,
-            quality=quality,
-            fmt=fmt,
-            output_dir=output,
-            subtitles=subtitles,
-            sub_lang=sub_lang,
-            embed_thumbnail=thumbnail,
-            sponsorblock=sponsorblock,
-            progress_callback=progress_callback,
-            verbose=verbose,
-            use_aria2c=aria2c,
-            cookies_from_browser=cookies_from_browser,
-            cookies_file=cookies_file,
-            rate_limit=rate_limit,
-            proxy=proxy,
-            skip_downloaded=skip_downloaded,
-        )
+    try:
+        with TerminalProgress(console, "Download") as progress_callback:
+            result = download_video(
+                url=url,
+                quality=quality,
+                fmt=fmt,
+                output_dir=output,
+                subtitles=subtitles,
+                sub_lang=sub_lang,
+                embed_thumbnail=thumbnail,
+                sponsorblock=sponsorblock,
+                progress_callback=progress_callback,
+                verbose=verbose,
+                use_aria2c=aria2c,
+                cookies_from_browser=cookies_from_browser,
+                cookies_file=cookies_file,
+                rate_limit=rate_limit,
+                proxy=proxy,
+                skip_downloaded=skip_downloaded,
+            )
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
     show_result_panel(result)
 
@@ -282,22 +286,26 @@ def playlist(
 
     titles = playlist_titles_from_info(info, start=start, end=end)
 
-    with MultiTerminalProgress(console, titles) as progress_callback:
-        results = download_playlist(
-            url=url,
-            quality=quality,
-            fmt=fmt,
-            output_dir=output,
-            start=start,
-            end=end,
-            parallel=parallel,
-            subtitles=subtitles,
-            sub_lang=sub_lang,
-            embed_thumbnail=thumbnail,
-            sponsorblock=sponsorblock,
-            verbose=verbose,
-            on_progress=progress_callback,
-        )
+    try:
+        with MultiTerminalProgress(console, titles) as progress_callback:
+            results = download_playlist(
+                url=url,
+                quality=quality,
+                fmt=fmt,
+                output_dir=output,
+                start=start,
+                end=end,
+                parallel=parallel,
+                subtitles=subtitles,
+                sub_lang=sub_lang,
+                embed_thumbnail=thumbnail,
+                sponsorblock=sponsorblock,
+                verbose=verbose,
+                on_progress=progress_callback,
+            )
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
     show_summary_table(results)
 
@@ -337,6 +345,11 @@ def audio(
     ] = False,
 ) -> None:
     """Extract audio from a YouTube video."""
+    from core.utils import check_ffmpeg
+    if not check_ffmpeg():
+        console.print("[bold red]Error: ffmpeg is required for extracting and converting audio. Please install ffmpeg and make sure it is in your PATH.[/]")
+        raise typer.Exit(code=1)
+
     import click
 
     from core.config import ConfigManager
@@ -854,7 +867,11 @@ def info(
 
     from core.metadata import get_video_info
 
-    video = get_video_info(url)
+    try:
+        video = get_video_info(url)
+    except Exception as e:
+        console.print(f"[bold red]Could not retrieve video information:[/] {e}")
+        raise typer.Exit(code=1)
 
     if not video:
         console.print("[bold red]Could not retrieve video information.[/]")
@@ -929,6 +946,11 @@ def chapters(
     ] = False,
 ) -> None:
     """Download a video split by chapter markers."""
+    from core.utils import check_ffmpeg
+    if not check_ffmpeg():
+        console.print("[bold red]Error: ffmpeg is required for chapter downloads. Please install ffmpeg and make sure it is in your PATH.[/]")
+        raise typer.Exit(code=1)
+
     console.print(
         Panel(
             f"[bold]URL:[/] {url}\n"
@@ -941,15 +963,19 @@ def chapters(
     from core.metadata import download_by_chapters
     from core.progress import TerminalProgress
 
-    with TerminalProgress(console, "Chapters") as progress_callback:
-        results = download_by_chapters(
-            url=url,
-            quality=quality,
-            fmt=fmt,
-            output_dir=output,
-            progress_callback=progress_callback,
-            verbose=verbose,
-        )
+    try:
+        with TerminalProgress(console, "Chapters") as progress_callback:
+            results = download_by_chapters(
+                url=url,
+                quality=quality,
+                fmt=fmt,
+                output_dir=output,
+                progress_callback=progress_callback,
+                verbose=verbose,
+            )
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
     show_summary_table(results)
 
@@ -992,6 +1018,11 @@ def clip(
     ] = False,
 ) -> None:
     """Download a specific time range from a video."""
+    from core.utils import check_ffmpeg
+    if not check_ffmpeg():
+        console.print("[bold red]Error: ffmpeg is required for downloading clips. Please install ffmpeg and make sure it is in your PATH.[/]")
+        raise typer.Exit(code=1)
+
     if not start and not end:
         console.print("[bold red]Error:[/] Specify at least --start or --end.")
         raise typer.Exit(code=1)
@@ -1010,17 +1041,21 @@ def clip(
     from core.downloader import download_clip
     from core.progress import TerminalProgress
 
-    with TerminalProgress(console, "Clip") as progress_callback:
-        result = download_clip(
-            url=url,
-            start_time=start,
-            end_time=end,
-            quality=quality,
-            fmt=fmt,
-            output_dir=output,
-            progress_callback=progress_callback,
-            verbose=verbose,
-        )
+    try:
+        with TerminalProgress(console, "Clip") as progress_callback:
+            result = download_clip(
+                url=url,
+                start_time=start,
+                end_time=end,
+                quality=quality,
+                fmt=fmt,
+                output_dir=output,
+                progress_callback=progress_callback,
+                verbose=verbose,
+            )
+    except ValueError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(code=1)
 
     show_result_panel(result)
 
@@ -1060,6 +1095,12 @@ def history(
         clear_history()
         console.print("[green]Download history cleared.[/]")
         return
+
+    if export:
+        fmt_lower = export.strip().lower()
+        if fmt_lower not in ("json", "csv"):
+            console.print(f"[red]Unknown export format: {export!r}. Use 'csv' or 'json'.[/]")
+            raise typer.Exit(code=1)
 
     entries = get_history(limit=limit if not export else 999999)
 

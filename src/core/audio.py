@@ -89,12 +89,9 @@ def extract_audio(
 
     tracker.add_callback(wrapped_callback)
 
-    # Extract video ID from URL or fallback
-    match = VIDEO_ID_PATTERN.search(url)
-    video_id = match.group(1) if match else None
-    if not video_id:
-        import hashlib
-        video_id = hashlib.md5(url.encode()).hexdigest()[:11]
+    # Extract video ID from URL or fallback using shared helper
+    from core.utils import extract_video_id
+    video_id = extract_video_id(url)
 
     hook = make_progress_hook(tracker)
     safety = SafeDownloadManager(output_path, video_id=video_id)
@@ -163,13 +160,15 @@ def extract_audio(
         tracker.title = result.title
         tracker.video_id = str(info.get("id") or "")
 
-        # Find downloaded file
-        final_path = _find_audio_file(info, output_path, audio_format)
+        # Find downloaded file using shared helper
+        from core.utils import find_output_file
+        final_path = find_output_file(info, output_path, audio_format)
         if final_path and final_path.exists():
             if verify_file_integrity(final_path):
                 result.file_path = final_path
                 result.file_size = final_path.stat().st_size
             else:
+                logger.warning("File integrity check failed for %s", final_path)
                 result.file_path = final_path
                 result.file_size = final_path.stat().st_size
 
@@ -177,12 +176,9 @@ def extract_audio(
         result.elapsed_seconds = time.monotonic() - start_time
         tracker.set_status(DownloadStatus.COMPLETED)
 
-        # Add to history database
-        try:
-            from core.history import add_to_history
-            add_to_history(result)
-        except Exception as e:
-            logger.debug("Failed to write download history: %s", e)
+        # Add to history database using shared safe helper
+        from core.history import safe_add_to_history
+        safe_add_to_history(result)
 
         safety.cleanup_temp()
         return result
@@ -197,40 +193,6 @@ def extract_audio(
         return result
 
 
-def _find_audio_file(
-    info: dict[str, Any],
-    output_dir: Path,
-    audio_format: str,
-) -> Path | None:
-    """Locate the extracted audio file.
 
-    Args:
-        info: yt-dlp info dict after download.
-        output_dir: Output directory.
-        audio_format: The expected audio extension.
-
-    Returns:
-        Path to the audio file, or None.
-    """
-    # Check requested_downloads first
-    for dl in info.get("requested_downloads", []):
-        if filepath := dl.get("filepath"):
-            p = Path(filepath)
-            if p.exists():
-                return p
-
-    if filepath := info.get("filepath"):
-        p = Path(filepath)
-        if p.exists():
-            return p
-
-    # Fallback: title.ext
-    title = info.get("title", "")
-    if title:
-        candidate = output_dir / f"{title}.{audio_format}"
-        if candidate.exists():
-            return candidate
-
-    return None
 
 

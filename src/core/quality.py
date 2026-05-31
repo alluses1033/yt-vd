@@ -89,12 +89,14 @@ def resolve_format_string(quality: Any) -> str:
             return f"{normalized}/best"
         return normalized
 
-    # Unknown quality — warn and fallback to best
-    logger.warning(
-        "Unknown quality %r — falling back to 'best'",
-        quality,
+    # Unknown quality — raise ValueError
+    valid_presets = ", ".join(f"'{k}'" for k in QUALITY_FORMAT_MAP.keys())
+    valid_res = ", ".join(f"'{k}'" for k in RESOLUTION_FORMAT_MAP.keys())
+    raise ValueError(
+        f"Invalid quality value: {quality!r}. "
+        f"Must be a preset ({valid_presets}), "
+        f"a resolution ({valid_res}), or a custom yt-dlp format string."
     )
-    return QUALITY_FORMAT_MAP[QualityPreset.BEST]
 
 
 def check_quality_available(info_dict: dict[str, Any], quality: Any) -> bool:

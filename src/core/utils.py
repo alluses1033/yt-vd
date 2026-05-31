@@ -221,5 +221,73 @@ def check_ffmpeg() -> str | None:
 # Filesystem Helpers
 # ──────────────────────────────────────────────
 
+def find_output_file(
+    info: dict[str, Any],
+    output_dir: Path | str,
+    ext: str | None = None,
+) -> Path | None:
+    """Locate the downloaded or extracted file from yt-dlp's info dict.
+
+    Args:
+        info: The yt-dlp info dictionary.
+        output_dir: The destination directory.
+        ext: Optional expected file extension. Falls back to info['ext'] or 'mp4'.
+    """
+    out_dir_path = Path(output_dir)
+
+    # 1. Check requested_downloads first
+    for dl in info.get("requested_downloads", []):
+        if filepath := dl.get("filepath"):
+            p = Path(filepath)
+            if p.exists():
+                return p
+
+    # 2. Check info.get("filepath")
+    if filepath := info.get("filepath"):
+        p = Path(filepath)
+        if p.exists():
+            return p
+
+    # 3. Fallback: title and ext
+    title = info.get("title", "")
+    expected_ext = ext or info.get("ext") or "mp4"
+    if title:
+        candidate = out_dir_path / f"{title}.{expected_ext}"
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
+def extract_video_id(url: str) -> str:
+    """Extract the 11-character video ID from a YouTube URL.
+
+    Falls back to a stable MD5 hash if no ID can be extracted.
+    """
+    from constants import VIDEO_ID_PATTERN
+    import hashlib
+
+    match = VIDEO_ID_PATTERN.search(url)
+    if match:
+        return match.group(1)
+    return hashlib.md5(url.encode()).hexdigest()[:11]
+
+
+def get_best_thumbnail_url(info_dict: dict[str, Any]) -> str:
+    """Get the highest resolution thumbnail URL from info dictionary."""
+    thumbs = info_dict.get("thumbnails")
+    thumb = None
+    if isinstance(thumbs, list) and len(thumbs) > 0:
+        def get_res(t: dict[str, Any]) -> int:
+            w = t.get("width") or 0
+            h = t.get("height") or 0
+            return w * h
+        sorted_thumbs = sorted(thumbs, key=get_res, reverse=True)
+        if sorted_thumbs:
+            thumb = sorted_thumbs[0].get("url")
+    if not thumb:
+        thumb = info_dict.get("thumbnail", "")
+    return normalize_youtube_thumbnail_url(thumb or "")
+
 
 

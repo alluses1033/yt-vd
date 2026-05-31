@@ -78,6 +78,7 @@ def build_ydl_opts(
     cookies_file: str | None = None,
     rate_limit: str | None = None,
     proxy: str | None = None,
+    safety: SafeDownloadManager | None = None,
 ) -> dict[str, Any]:
     """Build a complete yt-dlp options dictionary.
 
@@ -122,8 +123,9 @@ def build_ydl_opts(
 
     # Paths
     if use_temp_dir:
-        safety = SafeDownloadManager(output_dir, video_id=video_id)
-        opts.update(safety.get_ydl_paths())
+        # Reuse safety if provided, otherwise create it
+        mgr = safety if safety is not None else SafeDownloadManager(output_dir, video_id=video_id)
+        opts.update(mgr.get_ydl_paths())
     else:
         opts["paths"] = {"home": str(output_dir)}
 
@@ -326,12 +328,9 @@ def download_video(
     if not validate_url(url):
         logger.warning("URL does not appear to be a YouTube URL: %s", url)
 
-    # Extract video ID from URL or fallback
-    match = VIDEO_ID_PATTERN.search(url)
-    video_id = match.group(1) if match else None
-    if not video_id:
-        import hashlib
-        video_id = hashlib.md5(url.encode()).hexdigest()[:11]
+    # Extract video ID from URL or fallback using shared helper
+    from core.utils import extract_video_id
+    video_id = extract_video_id(url)
 
     if subtitle_langs is None and sub_lang:
         if isinstance(sub_lang, str):
@@ -340,6 +339,10 @@ def download_video(
             subtitle_langs = list(sub_lang)
     if embed_subs and not subtitle_langs:
         subtitle_langs = ["en"]
+
+    # Validate quality string upfront
+    from core.quality import resolve_format_string
+    resolve_format_string(quality)
 
     result = DownloadResult(url=url)
     start_time = time.monotonic()
@@ -402,6 +405,9 @@ def download_video(
     if progress_hook:
         progress_hooks.append(progress_hook)
 
+    # Create safety manager once — reused for paths and cleanup
+    safety = SafeDownloadManager(output_path, video_id=video_id)
+
     opts = build_ydl_opts(
         output_dir=output_path,
         quality=effective_quality,
@@ -421,10 +427,8 @@ def download_video(
         cookies_file=cookies_file,
         rate_limit=rate_limit,
         proxy=proxy,
+        safety=safety,
     )
-
-    # Create safety manager once — reused for cleanup on success, error, and interrupt
-    safety = SafeDownloadManager(output_path, video_id=video_id)
 
     # Download with retry
     def _do_download() -> dict[str, Any]:
@@ -446,8 +450,9 @@ def download_video(
             retriable_checker=_is_retriable,
         )
 
-        # Find the downloaded file
-        final_path = _find_downloaded_file(download_info, output_path)
+        # Find the downloaded file using shared helper
+        from core.utils import find_output_file
+        final_path = find_output_file(download_info, output_path)
         title_value = download_info.get("title") or result.title
         result.title = title_value
         result.quality = effective_quality
@@ -478,12 +483,9 @@ def download_video(
             tracker.set_status(DownloadStatus.COMPLETED)
 
         result.elapsed_seconds = time.monotonic() - start_time
-        # Add to history database
-        try:
-            from core.history import add_to_history
-            add_to_history(result)
-        except Exception as e:
-            logger.debug("Failed to write download history: %s", e)
+        # Add to history database using shared safe helper
+        from core.history import safe_add_to_history
+        safe_add_to_history(result)
 
         # Clean up temp directory
         safety.cleanup_temp()
@@ -505,43 +507,7 @@ def download_video(
 # Helpers
 # ──────────────────────────────────────────────
 
-def _find_downloaded_file(
-    info: dict[str, Any],
-    output_dir: Path,
-) -> Path | None:
-    """Locate the downloaded file from yt-dlp's info dict.
 
-    Checks multiple yt-dlp info fields in order of reliability.
-
-    Args:
-        info: The yt-dlp info dictionary after download.
-        output_dir: The expected output directory.
-
-    Returns:
-        Path to the downloaded file, or None if not found.
-    """
-    # yt-dlp may provide the filepath directly
-    if filepath := info.get("filepath"):
-        p = Path(filepath)
-        if p.exists():
-            return p
-
-    # Try requested_downloads
-    for dl in info.get("requested_downloads", []):
-        if filepath := dl.get("filepath"):
-            p = Path(filepath)
-            if p.exists():
-                return p
-
-    # Fallback: construct from title and ext
-    title = info.get("title", "")
-    ext = info.get("ext", "mp4")
-    if title:
-        candidate = output_dir / f"{title}.{ext}"
-        if candidate.exists():
-            return candidate
-
-    return None
 
 
 def _is_retriable(error: Exception) -> bool:

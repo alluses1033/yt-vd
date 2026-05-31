@@ -73,6 +73,9 @@ def search_youtube(
             logger.debug("Video search failed: %s", e)
             return cached[:needed_limit]
         _VIDEO_SEARCH_CACHE[query] = results
+        if len(_VIDEO_SEARCH_CACHE) > 20:
+            first_key = next(iter(_VIDEO_SEARCH_CACHE))
+            _VIDEO_SEARCH_CACHE.pop(first_key, None)
         return results
 
     def get_playlists() -> list[dict[str, Any]]:
@@ -107,6 +110,9 @@ def search_youtube(
             logger.debug("Playlist search failed: %s", e)
             return cached[:needed_limit]
         _PLAYLIST_SEARCH_CACHE[query] = results
+        if len(_PLAYLIST_SEARCH_CACHE) > 20:
+            first_key = next(iter(_PLAYLIST_SEARCH_CACHE))
+            _PLAYLIST_SEARCH_CACHE.pop(first_key, None)
         return results
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -144,22 +150,9 @@ def search_youtube(
         if is_playlist and not title.startswith("[Playlist]"):
             title = f"[Playlist] {title}"
 
-        # Parse thumbnail url: sort by resolution descending to get highest quality
-        thumb = None
-        if entry.get("thumbnails"):
-            thumbs = entry.get("thumbnails")
-            if isinstance(thumbs, list) and len(thumbs) > 0:
-                def get_res(t: dict[str, Any]) -> int:
-                    w = t.get("width") or 0
-                    h = t.get("height") or 0
-                    return w * h
-                sorted_thumbs = sorted(thumbs, key=get_res, reverse=True)
-                if sorted_thumbs:
-                    thumb = sorted_thumbs[0].get("url")
-        if not thumb:
-            thumb = entry.get("thumbnail")
-
-        thumb = normalize_youtube_thumbnail_url(thumb or "")
+        # Parse thumbnail url using shared helper
+        from core.utils import get_best_thumbnail_url
+        thumb = get_best_thumbnail_url(entry)
 
         # Parse duration
         dur_val = entry.get("duration")

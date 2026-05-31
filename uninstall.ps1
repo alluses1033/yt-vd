@@ -4,7 +4,8 @@ $ProgressPreference = "Continue"
 
 $Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
-$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
+$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd\yt-vd"
+$ParentAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
 
 Write-Host "========================================="
 Write-Host "           Uninstalling yt-vd            "
@@ -33,6 +34,14 @@ if (Test-Path -LiteralPath $UserAppDataDir) {
         Write-Host "Successfully deleted config and database directory."
     } catch {
         Write-Host "Warning: Failed to remove some config files: $_"
+    }
+}
+if (Test-Path -LiteralPath $ParentAppDataDir) {
+    $Items = Get-ChildItem -LiteralPath $ParentAppDataDir -ErrorAction SilentlyContinue
+    if (-not $Items) {
+        try {
+            Remove-Item -LiteralPath $ParentAppDataDir -Force -ErrorAction SilentlyContinue
+        } catch {}
     }
 }
 

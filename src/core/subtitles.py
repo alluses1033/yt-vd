@@ -130,7 +130,9 @@ def download_subtitles(
     # Scan output dir for subtitle files created by yt-dlp
     title = info.get("title", "")
     if title:
-        for sub_file in output_path.glob(f"*{title}*"):
+        import glob
+        escaped_title = glob.escape(title)
+        for sub_file in output_path.glob(f"*{escaped_title}*"):
             if sub_file.suffix.lstrip(".") in ("srt", "vtt", "ass", "json3", "srv1", "srv2", "srv3"):
                 downloaded.append(sub_file)
 
@@ -200,8 +202,6 @@ def normalize_subtitle_languages(languages: list[str] | tuple[str, ...]) -> list
         if not clean:
             continue
         expanded.append(clean)
-        if clean != "all" and not any(ch in clean for ch in ".*+?[](){}|\\"):
-            expanded.append(f"{clean}.*")
     return list(dict.fromkeys(expanded))
 
 
