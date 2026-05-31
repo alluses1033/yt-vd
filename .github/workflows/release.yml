@@ -20,6 +20,9 @@ jobs:
     name: Bump Version (Semantic)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      bumped: ${{ steps.check-bump.outputs.bumped }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -45,23 +48,31 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Commit and push tag
-        if: steps.bump.outputs.new_version != ''
+        id: check-bump
         run: |
           NEW_VER="${{ steps.bump.outputs.new_version }}"
           if ! git diff --quiet pyproject.toml; then
+            echo "bumped=true" >> $GITHUB_OUTPUT
             git add pyproject.toml
             git commit -m "chore(release): bump version to v$NEW_VER [skip ci]"
             git push origin main
-          fi
-          
-          if ! git rev-parse "v$NEW_VER" >/dev/null 2>&1; then
+            
             git tag "v$NEW_VER"
             git push origin "v$NEW_VER"
+          else
+            echo "bumped=false" >> $GITHUB_OUTPUT
           fi
 
   create-release:
     name: Create GitHub release
-    if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || github.event_name == 'workflow_dispatch'
+    needs: bump-version
+    if: |
+      always() &&
+      (
+        (needs.bump-version.result == 'success' && needs.bump-version.outputs.bumped == 'true') ||
+        (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.determine-tag.outputs.tag_name }}
@@ -74,7 +85,7 @@ jobs:
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG_NAME="${{ inputs.tag_name }}"
           else
-            TAG_NAME="latest"
+            TAG_NAME="v${{ needs.bump-version.outputs.new_version }}"
           fi
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
@@ -90,13 +101,19 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "yt-vd $TAG_NAME" \
             --notes "Release of yt-vd $TAG_NAME built from commit $GITHUB_SHA" \
-            --latest
+            --latest || true
 
   build:
     name: Build ${{ matrix.name }}
-    if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || github.event_name == 'workflow_dispatch'
+    needs: [bump-version, create-release]
+    if: |
+      always() &&
+      (
+        (needs.bump-version.result == 'success' && needs.bump-version.outputs.bumped == 'true') ||
+        (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ${{ matrix.os }}
-    needs: create-release
     strategy:
       fail-fast: false
       matrix:
