@@ -181,7 +181,7 @@ def extract_audio(
         from core.history import safe_add_to_history
         safe_add_to_history(result)
 
-        safety.cleanup_temp()
+        safety.cleanup_temp(force=True)
         return result
 
     except Exception as e:

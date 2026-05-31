@@ -492,7 +492,7 @@ def download_video(
         safe_add_to_history(result)
 
         # Clean up temp directory
-        safety.cleanup_temp()
+        safety.cleanup_temp(force=True)
         return result
 
     except Exception as e:

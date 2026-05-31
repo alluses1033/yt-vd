@@ -74,10 +74,11 @@ class SafeDownloadManager:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # Hide the parent .yt-vd-temp folder on Windows
-        parent = self._temp_dir.parent
-        if parent.name == TEMP_DIR_NAME:
-            _hide_folder(parent)
+        # Hide the .yt-vd-temp folder on Windows
+        if self._temp_dir.name == TEMP_DIR_NAME:
+            _hide_folder(self._temp_dir)
+        elif self._temp_dir.parent.name == TEMP_DIR_NAME:
+            _hide_folder(self._temp_dir.parent)
 
         return self._temp_dir
 
@@ -138,13 +139,13 @@ class SafeDownloadManager:
         logger.info("Moved %s → %s", temp_file.name, final_path)
         return final_path
 
-    def cleanup_temp(self) -> None:
+    def cleanup_temp(self, force: bool = False) -> None:
         """Remove the temp directory and all its contents.
 
         Only removes the temp directory; the output directory is preserved.
-        .part files are preserved to support download resume.
+        If ``force`` is True, all files including .part files are deleted.
         """
-        cleanup_temp(self._temp_dir)
+        cleanup_temp(self._temp_dir, force=force)
 
 
 # ──────────────────────────────────────────────
@@ -210,51 +211,72 @@ def verify_file_integrity(filepath: str | Path) -> bool:
     return True
 
 
-def cleanup_temp(temp_dir: str | Path) -> None:
-    """Remove temporary download files, preserving .part files for resume.
+def cleanup_temp(temp_dir: str | Path, force: bool = False) -> None:
+    """Remove temporary download files, preserving .part files for resume unless forced.
 
     Args:
         temp_dir: Path to the temp directory to clean.
+        force: If True, delete all files including .part files.
     """
     temp_path = Path(temp_dir)
     if not temp_path.exists():
         return
 
     part_files: list[Path] = []
+    import time
+
+    # Helper to delete file with retries (handles Windows / antivirus locks)
+    def _delete_file_with_retry(file_path: Path) -> bool:
+        for i in range(5):
+            try:
+                file_path.unlink()
+                return True
+            except OSError:
+                time.sleep(0.1)
+        return False
+
+    # Helper to delete dir with retries
+    def _delete_dir_with_retry(dir_path: Path) -> bool:
+        for i in range(5):
+            try:
+                shutil.rmtree(dir_path)
+                return True
+            except OSError:
+                time.sleep(0.1)
+        return False
 
     for item in temp_path.iterdir():
         if item.is_file():
-            if item.suffix == ".part":
+            if not force and item.suffix == ".part":
                 part_files.append(item)
                 logger.debug("Preserving .part file for resume: %s", item.name)
             else:
-                try:
-                    item.unlink()
-                    logger.debug("Removed temp file: %s", item.name)
-                except OSError as e:
-                    logger.warning("Failed to remove temp file %s: %s", item.name, e)
+                if not _delete_file_with_retry(item):
+                    logger.warning("Failed to remove temp file %s after retries", item.name)
         elif item.is_dir():
-            try:
-                shutil.rmtree(item)
-            except OSError as e:
-                logger.warning("Failed to remove temp dir %s: %s", item.name, e)
+            if not _delete_dir_with_retry(item):
+                logger.warning("Failed to remove temp dir %s after retries", item.name)
 
     # Remove the temp dir itself only if empty (no .part files left)
     if not part_files:
-        try:
-            temp_path.rmdir()
-            logger.debug("Removed temp directory: %s", temp_path)
+        for i in range(5):
+            try:
+                temp_path.rmdir()
+                logger.debug("Removed temp directory: %s", temp_path)
+                break
+            except OSError:
+                time.sleep(0.1)
 
-            # Try to remove parent .yt-vd-temp if it's empty
-            parent = temp_path.parent
-            if parent.name == TEMP_DIR_NAME:
+        # Try to remove parent .yt-vd-temp if it's empty
+        parent = temp_path.parent
+        if parent.name == TEMP_DIR_NAME:
+            for i in range(5):
                 try:
                     parent.rmdir()
                     logger.debug("Removed parent temp directory: %s", parent)
+                    break
                 except OSError:
-                    pass
-        except OSError:
-            pass  # Not empty or in use — that's fine
+                    time.sleep(0.1)
 
 
 # ──────────────────────────────────────────────

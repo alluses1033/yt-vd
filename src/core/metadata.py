@@ -18,6 +18,7 @@ from constants import (
     VideoInfo,
 )
 from core.downloader import build_ydl_opts, extract_info
+from core.fragment_safety import SafeDownloadManager, verify_file_integrity
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
 from core.utils import normalize_youtube_thumbnail_url, sanitize_filename
 
@@ -161,59 +162,74 @@ def download_by_chapters(
 
     results: list[DownloadResult] = []
 
-    for i, chapter in enumerate(chapters, start=1):
-        chapter_title = chapter["title"]
-        safe_chapter_title = sanitize_filename(chapter_title)
-        start = chapter["start_time"]
-        end = chapter["end_time"]
+    # Initialize safety manager to download chapters to isolated temp directory first
+    from core.utils import extract_video_id
+    video_id = extract_video_id(url)
+    safety = SafeDownloadManager(output_path, video_id=video_id)
 
-        logger.info("Downloading chapter %d/%d: %s", i, len(chapters), chapter_title)
+    try:
+        for i, chapter in enumerate(chapters, start=1):
+            chapter_title = chapter["title"]
+            safe_chapter_title = sanitize_filename(chapter_title)
+            start = chapter["start_time"]
+            end = chapter["end_time"]
 
-        tracker = ProgressTracker(title=chapter_title)
-        if progress_callback:
-            tracker.add_callback(progress_callback)
+            logger.info("Downloading chapter %d/%d: %s", i, len(chapters), chapter_title)
 
-        hook = make_progress_hook(tracker)
+            tracker = ProgressTracker(title=chapter_title)
+            if progress_callback:
+                tracker.add_callback(progress_callback)
 
-        # Use yt-dlp's download_ranges for chapter extraction
-        opts = build_ydl_opts(
-            output_dir=output_dir,
-            quality=quality,
-            video_format=video_format,
-            output_template=f"{i:02d} - {safe_chapter_title}.%(ext)s",
-            progress_hooks=[hook],
-            extra_opts={
-                "download_ranges": _make_chapter_range(start, end),
-                "force_keyframes_at_cuts": True,
-            },
-        )
+            hook = make_progress_hook(tracker)
 
-        result = DownloadResult(url=url, title=chapter_title)
+            # Use yt-dlp's download_ranges for chapter extraction
+            opts = build_ydl_opts(
+                output_dir=output_path,
+                quality=quality,
+                video_format=video_format,
+                output_template=f"{i:02d} - {safe_chapter_title}.%(ext)s",
+                progress_hooks=[hook],
+                safety=safety,
+                extra_opts={
+                    "download_ranges": _make_chapter_range(start, end),
+                    "force_keyframes_at_cuts": True,
+                },
+            )
 
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+            result = DownloadResult(url=url, title=chapter_title)
 
-            if info:
-                result.status = DownloadStatus.COMPLETED
-                result.duration = end - start
-                # Find the downloaded chapter file
-                for dl in info.get("requested_downloads", []):
-                    if filepath := dl.get("filepath"):
-                        p = Path(filepath)
-                        if p.exists():
-                            result.file_path = p
-                            result.file_size = p.stat().st_size
-                            break
-            else:
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+
+                if info:
+                    result.status = DownloadStatus.COMPLETED
+                    result.duration = end - start
+                    
+                    # Find in temp directory
+                    from core.utils import find_output_file
+                    temp_file_path = find_output_file(info, safety.temp_dir, video_format)
+                    if temp_file_path and temp_file_path.exists():
+                        is_valid = verify_file_integrity(temp_file_path)
+                        if not is_valid:
+                            logger.warning("File integrity check failed for %s", temp_file_path)
+                        
+                        # Atomically move from temp to final directory
+                        final_path = safety.move_to_final(temp_file_path)
+                        result.file_path = final_path
+                        result.file_size = final_path.stat().st_size
+                else:
+                    result.status = DownloadStatus.FAILED
+                    result.error_message = "No info returned"
+            except Exception as e:
                 result.status = DownloadStatus.FAILED
-                result.error_message = "No info returned"
-        except Exception as e:
-            result.status = DownloadStatus.FAILED
-            result.error_message = str(e)
-            logger.error("Failed to download chapter %d: %s", i, e)
+                result.error_message = str(e)
+                logger.error("Failed to download chapter %d: %s", i, e)
 
-        results.append(result)
+            results.append(result)
+    finally:
+        # Guarantee that temp files and the parent folder are fully deleted after the run
+        safety.cleanup_temp(force=True)
 
     return results
 
