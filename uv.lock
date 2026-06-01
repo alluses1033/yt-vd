@@ -553,9 +553,10 @@ wheels = [
 
 [[package]]
 name = "yt-vd"
-version = "1.1.0"
+version = "1.1.4"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "pillow" },
     { name = "platformdirs" },
     { name = "questionary" },
@@ -574,6 +575,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.0" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "platformdirs", specifier = ">=4.3.0" },
     { name = "questionary", specifier = ">=2.1.0" },
