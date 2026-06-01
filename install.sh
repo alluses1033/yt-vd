@@ -19,10 +19,11 @@ fi
 printf '%s\n' "Installing yt-vd for $os ($asset_name)..."
 mkdir -p "$install_dir"
 
-if [ -f "$install_dir/yt-vd" ]; then
-    printf '%s\n' "Removing existing yt-vd binary to ensure clean update..."
-    rm -f "$install_dir/yt-vd"
-fi
+tmp_dir="$(mktemp -d "${install_dir}/.yt-vd-install.XXXXXX")"
+cleanup() {
+    rm -rf "$tmp_dir"
+}
+trap cleanup EXIT HUP INT TERM
 
 download() {
     url="$1"
@@ -40,8 +41,16 @@ download() {
     fi
 }
 
-download "${base_url}/${asset_name}" "${install_dir}/yt-vd"
-chmod +x "${install_dir}/yt-vd"
+tmp_bin="${tmp_dir}/yt-vd"
+download "${base_url}/${asset_name}" "$tmp_bin"
+
+if [ ! -s "$tmp_bin" ]; then
+    printf '%s\n' "Downloaded binary is empty; leaving existing installation untouched." >&2
+    exit 1
+fi
+
+chmod 0755 "$tmp_bin"
+mv -f "$tmp_bin" "${install_dir}/yt-vd"
 
 case ":$PATH:" in
     *":${install_dir}:"*) ;;

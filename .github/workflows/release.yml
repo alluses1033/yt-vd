@@ -16,8 +16,35 @@ permissions:
   contents: write
 
 jobs:
+  quality-gate:
+    name: Test, lint, and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pytest ruff mypy
+
+      - name: Run ruff
+        run: python -m ruff check src tests
+
+      - name: Run pytest
+        run: python -m pytest
+
+      - name: Run mypy
+        run: python -m mypy src --no-incremental --no-sqlite-cache
+
   bump-version:
     name: Bump Version (Semantic)
+    needs: quality-gate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
     outputs:
@@ -65,9 +92,10 @@ jobs:
 
   create-release:
     name: Create GitHub release
-    needs: bump-version
+    needs: [quality-gate, bump-version]
     if: |
       always() &&
+      needs.quality-gate.result == 'success' &&
       (
         (needs.bump-version.result == 'success' && needs.bump-version.outputs.bumped == 'true') ||
         (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
@@ -105,9 +133,10 @@ jobs:
 
   build:
     name: Build ${{ matrix.name }}
-    needs: [bump-version, create-release]
+    needs: [quality-gate, bump-version, create-release]
     if: |
       always() &&
+      needs.quality-gate.result == 'success' &&
       (
         (needs.bump-version.result == 'success' && needs.bump-version.outputs.bumped == 'true') ||
         (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||

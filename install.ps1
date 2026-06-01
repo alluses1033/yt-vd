@@ -5,7 +5,6 @@ $ProgressPreference = "Continue"
 
 $Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
-$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
 $Bin = Join-Path $InstallDir "yt-vd.exe"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
@@ -36,18 +35,14 @@ function Get-ReleaseAsset {
     return $Asset
 }
 
-function Remove-ExistingInstallation {
+function Stop-ExistingProcesses {
 
-    Write-Host "Cleaning previous installation..."
+    Write-Host "Stopping running yt-vd processes..."
 
     Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue |
         Stop-Process -Force -ErrorAction SilentlyContinue
 
     Start-Sleep -Seconds 1
-
-    if (Test-Path $InstallDir) {
-        Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
 }
 
 function Download-Asset {
@@ -66,6 +61,15 @@ function Download-Asset {
         -Uri $Url `
         -OutFile $OutFile `
         -Headers @{ "User-Agent" = "yt-vd-installer" }
+
+    if (-not (Test-Path -LiteralPath $OutFile)) {
+        throw "Download did not create expected file: $OutFile"
+    }
+
+    $DownloadedSize = (Get-Item -LiteralPath $OutFile).Length
+    if ($Asset.size -gt 0 -and $DownloadedSize -ne [int64]$Asset.size) {
+        throw "Downloaded size mismatch for $Name. Expected $($Asset.size) bytes, got $DownloadedSize bytes."
+    }
 }
 
 Write-Host "Installing yt-vd..."
@@ -79,8 +83,9 @@ $RemoteVersion = $Release.tag_name
 
 Write-Host "Latest version: $RemoteVersion"
 
-# Remove old installation FIRST
-Remove-ExistingInstallation
+# Stop old binaries before replacement, but keep the existing install until the
+# new asset is downloaded and validated.
+Stop-ExistingProcesses
 
 # Create install directory
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -90,9 +95,45 @@ $CliAsset = Get-ReleaseAsset `
     -Release $Release `
     -Name "yt-vd-windows.exe"
 
-Download-Asset `
-    -Asset $CliAsset `
-    -OutFile $Bin
+$TempDir = Join-Path $InstallDir ".yt-vd-install-$PID"
+$TempBin = Join-Path $TempDir "yt-vd.exe"
+$BackupBin = Join-Path $InstallDir "yt-vd.exe.bak"
+
+try {
+    if (Test-Path -LiteralPath $TempDir) {
+        Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+
+    Download-Asset `
+        -Asset $CliAsset `
+        -OutFile $TempBin
+
+    if (Test-Path -LiteralPath $BackupBin) {
+        Remove-Item -LiteralPath $BackupBin -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $Bin) {
+        Move-Item -LiteralPath $Bin -Destination $BackupBin -Force
+    }
+
+    try {
+        Move-Item -LiteralPath $TempBin -Destination $Bin -Force
+    } catch {
+        if ((Test-Path -LiteralPath $BackupBin) -and -not (Test-Path -LiteralPath $Bin)) {
+            Move-Item -LiteralPath $BackupBin -Destination $Bin -Force
+        }
+        throw
+    }
+
+    if (Test-Path -LiteralPath $BackupBin) {
+        Remove-Item -LiteralPath $BackupBin -Force -ErrorAction SilentlyContinue
+    }
+} finally {
+    if (Test-Path -LiteralPath $TempDir) {
+        Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # Add PATH if missing
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -115,17 +156,25 @@ $UninstallScript = @'
 $ErrorActionPreference = "Stop"
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
-$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
+$UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd\yt-vd"
+$ParentAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
 
 Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
 
-if (Test-Path $UserAppDataDir) {
-    Remove-Item $UserAppDataDir -Recurse -Force
+if (Test-Path -LiteralPath $UserAppDataDir) {
+    Remove-Item -LiteralPath $UserAppDataDir -Recurse -Force
 }
 
-if (Test-Path $InstallDir) {
-    Remove-Item $InstallDir -Recurse -Force
+if (Test-Path -LiteralPath $ParentAppDataDir) {
+    $Items = Get-ChildItem -LiteralPath $ParentAppDataDir -ErrorAction SilentlyContinue
+    if (-not $Items) {
+        Remove-Item -LiteralPath $ParentAppDataDir -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if (Test-Path -LiteralPath $InstallDir) {
+    Remove-Item -LiteralPath $InstallDir -Recurse -Force
 }
 
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,7 @@ class SafeDownloadManager:
             Path to the temporary download directory.
         """
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        cleanup_orphaned_temp_dirs(self._output_dir)
         self._temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Hide the .yt-vd-temp folder on Windows
@@ -223,8 +225,6 @@ def cleanup_temp(temp_dir: str | Path, force: bool = False) -> None:
         return
 
     part_files: list[Path] = []
-    import time
-
     # Helper to delete file with retries (handles Windows / antivirus locks)
     def _delete_file_with_retry(file_path: Path) -> bool:
         for i in range(5):
@@ -279,6 +279,52 @@ def cleanup_temp(temp_dir: str | Path, force: bool = False) -> None:
                     time.sleep(0.1)
 
 
+def cleanup_orphaned_temp_dirs(
+    output_dir: str | Path,
+    *,
+    max_age_seconds: float = 24 * 60 * 60,
+) -> int:
+    """Remove stale temp download entries left by crashed or killed processes.
+
+    Running downloads can legitimately keep files in ``.yt-vd-temp``. To avoid
+    deleting active work, only entries older than ``max_age_seconds`` are
+    removed. Tests can pass ``0`` to force immediate cleanup.
+    """
+    temp_root = Path(output_dir) / TEMP_DIR_NAME
+    if not temp_root.exists() or not temp_root.is_dir():
+        return 0
+
+    removed = 0
+    now = time.time()
+
+    for item in list(temp_root.iterdir()):
+        try:
+            newest_mtime = _latest_mtime(item)
+        except OSError:
+            continue
+
+        if max_age_seconds > 0 and now - newest_mtime < max_age_seconds:
+            continue
+
+        try:
+            if item.is_dir():
+                cleanup_temp(item, force=True)
+                if item.exists():
+                    shutil.rmtree(item)
+            else:
+                item.unlink()
+            removed += 1
+        except OSError as exc:
+            logger.warning("Failed to remove orphaned temp entry %s: %s", item, exc)
+
+    try:
+        temp_root.rmdir()
+    except OSError:
+        pass
+
+    return removed
+
+
 # ──────────────────────────────────────────────
 # Internal Helpers
 # ──────────────────────────────────────────────
@@ -315,3 +361,15 @@ def _check_magic_bytes(filepath: Path, signatures: list[bytes]) -> bool:
             return True
 
     return False
+
+
+def _latest_mtime(path: Path) -> float:
+    """Return the newest modification time under ``path``."""
+    newest = path.stat().st_mtime
+    if path.is_dir():
+        for child in path.rglob("*"):
+            try:
+                newest = max(newest, child.stat().st_mtime)
+            except OSError:
+                continue
+    return newest
