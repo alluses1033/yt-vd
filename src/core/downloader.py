@@ -22,7 +22,6 @@ from constants import (
     MAX_RETRIES,
     SINGLE_VIDEO_TEMPLATE,
     SOCKET_TIMEOUT,
-    VIDEO_ID_PATTERN,
     DownloadResult,
     DownloadStatus,
     ProgressInfo,
@@ -464,7 +463,7 @@ def download_video(
             is_valid = verify_file_integrity(final_file_path)
             if not is_valid:
                 logger.warning("File integrity check failed for %s", final_file_path)
-            
+
             if use_temp_dir:
                 # Atomically move from temp to final directory
                 final_path = safety.move_to_final(final_file_path)

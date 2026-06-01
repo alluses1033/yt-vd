@@ -14,7 +14,6 @@ from typing import Any
 import yt_dlp
 
 from constants import VideoInfo
-from core.utils import normalize_youtube_thumbnail_url
 from core.ydl_options import with_base_ydl_opts
 
 logger = logging.getLogger(__name__)

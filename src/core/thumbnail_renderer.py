@@ -13,6 +13,7 @@ import tempfile
 import urllib.request
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 
 from PIL import Image
@@ -125,17 +126,21 @@ def _image_to_sixel(img: Image.Image) -> str:
     )
     palette_data = quantized.getpalette()  # flat [R, G, B, R, G, B, ...] list
     pixels = quantized.load()
+    if palette_data is None or pixels is None:
+        return ""
+
+    palette = cast(list[int], palette_data)
     width, height = quantized.size
 
     parts: list[str] = []
 
     # ── Sixel palette definitions: #idx;2;R%;G%;B% ──
     # Sixel uses percentage values 0-100 for each RGB channel
-    num_colors = len(palette_data) // 3 if palette_data else 0
+    num_colors = len(palette) // 3
     for i in range(num_colors):
-        r = int(palette_data[i * 3] / 255 * 100)
-        g = int(palette_data[i * 3 + 1] / 255 * 100)
-        b = int(palette_data[i * 3 + 2] / 255 * 100)
+        r = int(palette[i * 3] / 255 * 100)
+        g = int(palette[i * 3 + 1] / 255 * 100)
+        b = int(palette[i * 3 + 2] / 255 * 100)
         parts.append(f"#{i};2;{r};{g};{b}")
 
     # ── Sixel pixel data in bands of 6 rows ──
@@ -151,7 +156,7 @@ def _image_to_sixel(img: Image.Image) -> str:
         for x in range(width):
             for row in range(band_height):
                 y = band_y + row
-                color_idx = pixels[x, y]
+                color_idx = int(cast(int, pixels[x, y]))
                 if color_idx not in color_runs:
                     # Initialize all columns to sixel value 0 (char '?')
                     color_runs[color_idx] = [0] * width
@@ -198,12 +203,13 @@ def _is_safe_thumbnail_url(url: str) -> bool:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
-        netloc = parsed.netloc.lower()
-        if ":" in netloc:
-            netloc = netloc.split(":")[0]
+        host = parsed.hostname
+        if not host:
+            return False
+        host = host.rstrip(".").lower()
         allowed_suffixes = (".youtube.com", ".ytimg.com", ".googleusercontent.com", ".ggpht.com")
         allowed_exact = ("youtube.com", "youtu.be", "ytimg.com", "googleusercontent.com", "ggpht.com")
-        if netloc in allowed_exact or any(netloc.endswith(suffix) for suffix in allowed_suffixes):
+        if host in allowed_exact or any(host.endswith(suffix) for suffix in allowed_suffixes):
             return True
         return False
     except Exception:

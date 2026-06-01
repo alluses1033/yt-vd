@@ -13,7 +13,6 @@ from typing import Any
 from constants import (
     QUALITY_FORMAT_MAP,
     RESOLUTION_FORMAT_MAP,
-    QualityPreset,
 )
 
 logger = logging.getLogger(__name__)

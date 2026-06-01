@@ -18,7 +18,6 @@ from constants import (
     MAX_RETRIES,
     SINGLE_VIDEO_TEMPLATE,
     SOCKET_TIMEOUT,
-    VIDEO_ID_PATTERN,
     AudioBitrate,
     AudioFormat,
     DownloadResult,
@@ -167,7 +166,7 @@ def extract_audio(
             is_valid = verify_file_integrity(temp_file_path)
             if not is_valid:
                 logger.warning("File integrity check failed for %s", temp_file_path)
-            
+
             # Atomically move from temp to final directory
             final_path = safety.move_to_final(temp_file_path)
             result.file_path = final_path

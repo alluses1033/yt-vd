@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from constants import YOUTUBE_URL_PATTERNS
 
@@ -264,8 +264,9 @@ def extract_video_id(url: str) -> str:
 
     Falls back to a stable MD5 hash if no ID can be extracted.
     """
-    from constants import VIDEO_ID_PATTERN
     import hashlib
+
+    from constants import VIDEO_ID_PATTERN
 
     match = VIDEO_ID_PATTERN.search(url)
     if match:

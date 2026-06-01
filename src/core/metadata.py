@@ -20,7 +20,7 @@ from constants import (
 from core.downloader import build_ydl_opts, extract_info
 from core.fragment_safety import SafeDownloadManager, verify_file_integrity
 from core.progress import ProgressCallback, ProgressTracker, make_progress_hook
-from core.utils import normalize_youtube_thumbnail_url, sanitize_filename
+from core.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +205,7 @@ def download_by_chapters(
                 if info:
                     result.status = DownloadStatus.COMPLETED
                     result.duration = end - start
-                    
+
                     # Find in temp directory
                     from core.utils import find_output_file
                     temp_file_path = find_output_file(info, safety.temp_dir, video_format)
@@ -213,7 +213,7 @@ def download_by_chapters(
                         is_valid = verify_file_integrity(temp_file_path)
                         if not is_valid:
                             logger.warning("File integrity check failed for %s", temp_file_path)
-                        
+
                         # Atomically move from temp to final directory
                         final_path = safety.move_to_final(temp_file_path)
                         result.file_path = final_path
