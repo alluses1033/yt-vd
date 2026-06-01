@@ -201,12 +201,13 @@ def check_ffmpeg() -> str | None:
         return None
 
     try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         result = subprocess.run(
             [ffmpeg_path, "-version"],
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=creationflags,
         )
         # First line is typically "ffmpeg version X.Y.Z ..."
         first_line = result.stdout.split("\n", maxsplit=1)[0]

@@ -160,8 +160,11 @@ def _hide_folder(path: Path) -> None:
     if os.name == "nt":
         import ctypes
         file_attribute_hidden = 0x02
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return
         try:
-            ctypes.windll.kernel32.SetFileAttributesW(str(path), file_attribute_hidden)
+            windll.kernel32.SetFileAttributesW(str(path), file_attribute_hidden)
         except Exception:
             pass
 
