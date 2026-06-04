@@ -118,11 +118,11 @@ def _image_to_sixel(img: Image.Image) -> str:
     Returns:
         A complete Sixel escape sequence (DCS ... ST) ready to print.
     """
-    # Quantize to 256-color palette with dithering for best visual quality
+    # Quantize to 256-color palette without dithering for sharpest visual quality in terminals
     quantized = img.quantize(
         colors=256,
         method=Image.Quantize.MEDIANCUT,
-        dither=Image.Dither.FLOYDSTEINBERG,
+        dither=Image.Dither.NONE,
     )
     palette_data = quantized.getpalette()  # flat [R, G, B, R, G, B, ...] list
     pixels = quantized.load()
@@ -193,8 +193,8 @@ def _image_to_sixel(img: Image.Image) -> str:
     sixel_data = "".join(parts)
 
     # Wrap in DCS (Device Control String): ESC P <params> q <data> ESC \
-    # Parameters: P1=0 (normal aspect), P2=0 (no background), P3=0 (horizontal grid)
-    return f"\033P0;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
+    # Parameters: P1=7 (1:1 aspect ratio), P2=0 (no background), P3=0 (horizontal grid)
+    return f"\033P7;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
 
 
 def _is_safe_thumbnail_url(url: str) -> bool:
