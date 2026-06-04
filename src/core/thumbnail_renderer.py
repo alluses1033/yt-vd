@@ -40,7 +40,7 @@ def _get_quadrant_block(pixels: list[tuple[int, int, int]]) -> tuple[tuple[int, 
                 max_d = d
                 fg = pixels[i]
                 bg = pixels[j]
-    
+
     if max_d == 0:
         return fg, fg, 15
 
@@ -51,7 +51,7 @@ def _get_quadrant_block(pixels: list[tuple[int, int, int]]) -> tuple[tuple[int, 
         d_bg = sum((p[k] - bg[k]) ** 2 for k in range(3))
         if d_fg < d_bg:
             mask |= (1 << i)
-            
+
     return fg, bg, mask
 
 
@@ -445,7 +445,7 @@ def get_ansi_thumbnail(
                     p_tr = pixels[x + 1, y][:3] if pixels else (0,0,0)
                     p_bl = pixels[x, y + 1][:3] if pixels else (0,0,0)
                     p_br = pixels[x + 1, y + 1][:3] if pixels else (0,0,0)
-                    
+
                     # MyPy needs explicit tuples
                     p_tl = cast(tuple[int, int, int], p_tl)
                     p_tr = cast(tuple[int, int, int], p_tr)
