@@ -37,8 +37,19 @@ def render_result_thumbnails(
     width: int = 32,
     height: int = 12,
     max_workers: int = 6,
+    force_ansi: bool = True,
 ) -> dict[str, TerminalImage | None]:
-    """Render ANSI thumbnails concurrently for search-style result objects."""
+    """Render ANSI thumbnails concurrently for search-style result objects.
+
+    Args:
+        results: Search result objects with ``thumbnail_url`` and ``url`` attributes.
+        width: Thumbnail width in terminal columns.
+        height: Thumbnail height in terminal rows.
+        max_workers: Maximum number of concurrent download threads.
+        force_ansi: If True (default), always use ANSI half-block rendering.
+            This prevents Sixel/Kitty inline protocols from corrupting
+            Rich table layout.
+    """
     if not results:
         return {}
 
@@ -46,7 +57,10 @@ def render_result_thumbnails(
     output: dict[str, TerminalImage | None] = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(get_ansi_thumbnail, entry.thumbnail_url, width, height): entry
+            executor.submit(
+                get_ansi_thumbnail, entry.thumbnail_url, width, height,
+                force_ansi=force_ansi,
+            ): entry
             for entry in results
             if getattr(entry, "thumbnail_url", None)
         }

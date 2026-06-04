@@ -427,39 +427,38 @@ def _action_search() -> None:
             table.add_column("#", style="dim", width=4, justify="right")
             if show_thumbnails:
                 table.add_column("Thumbnail", width=thumb_w, justify="center", no_wrap=True)
-            table.add_column("Title", style="bold white", ratio=3)
-            table.add_column("Channel", style="green", no_wrap=True)
+            table.add_column("Title", style="bold white", ratio=3, overflow="ellipsis", no_wrap=True)
+            table.add_column("Channel", style="green", max_width=15, overflow="ellipsis", no_wrap=True)
             table.add_column("Duration", justify="center", width=10)
             table.add_column("Views", justify="right", width=12)
-            table.add_column("Link", style="dim cyan", ratio=2)
 
             for i, entry in enumerate(results, 1):
                 dur = entry.duration
                 dur_str = format_duration(dur) if dur else "N/A"
                 views = entry.view_count
                 views_str = f"{views:,}" if views else "N/A"
-                entry_url = entry.url or "N/A"
+
+                title_text = entry.title or "Unknown"
+                channel_text = entry.uploader or "Unknown"
 
                 if show_thumbnails:
-                    thumb_ansi = ansi_thumbnails.get(entry_url)
+                    thumb_ansi = ansi_thumbnails.get(entry.url or "N/A")
                     thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
                     table.add_row(
                         str(i),
                         thumb_render,
-                        entry.title or "Unknown",
-                        entry.uploader or "Unknown",
+                        title_text,
+                        channel_text,
                         dur_str,
                         views_str,
-                        entry_url,
                     )
                 else:
                     table.add_row(
                         str(i),
-                        entry.title or "Unknown",
-                        entry.uploader or "Unknown",
+                        title_text,
+                        channel_text,
                         dur_str,
                         views_str,
-                        entry_url,
                     )
 
             console.print(table)

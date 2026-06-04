@@ -314,11 +314,25 @@ def _is_safe_thumbnail_url(url: str) -> bool:
 _thumbnail_bytes_cache: dict[str, bytes] = {}
 
 
-def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalImage | None:
+def get_ansi_thumbnail(
+    url: str,
+    width: int = 16,
+    height: int = 6,
+    *,
+    force_ansi: bool = False,
+) -> TerminalImage | None:
     """Download thumbnail from URL and render it as a TerminalImage.
 
     Resizes the image and uses the best available graphics protocol:
     Kitty, iTerm2/WezTerm, Sixel, or ANSI half-block fallback.
+
+    Args:
+        url: Thumbnail image URL.
+        width: Target width in terminal columns.
+        height: Target height in terminal rows.
+        force_ansi: If True, always use ANSI half-block fallback regardless
+            of terminal protocol. Useful for table-embedded thumbnails where
+            inline graphics protocols (Sixel) cause layout corruption.
     """
     if not url or not url.startswith("http") or not _is_safe_thumbnail_url(url):
         return None
@@ -342,8 +356,8 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
         with Image.open(BytesIO(img_bytes)) as raw_img:
             rgb_img = raw_img.convert("RGB")
 
-            # Detect terminal protocol
-            protocol = get_terminal_protocol()
+            # Detect terminal protocol (skip inline protocols if force_ansi)
+            protocol = None if force_ansi else get_terminal_protocol()
 
             if protocol == "kitty":
                 # Kitty native graphics protocol — highest fidelity (24-bit PNG)
