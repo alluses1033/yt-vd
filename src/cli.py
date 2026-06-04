@@ -593,7 +593,7 @@ def search(
         # Check if console is a terminal
         is_term = bool(getattr(console, "is_terminal", False))
 
-        ansi_thumbnails = {}
+        ansi_thumbnails: dict[str, Any] = {}
         from rich.text import Text
 
         def draw_search_results_table():

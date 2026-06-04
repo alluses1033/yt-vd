@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import questionary
 from questionary import Style as QStyle
@@ -391,7 +392,7 @@ def _action_search() -> None:
         # Check if console is a terminal
         is_term = bool(getattr(console, "is_terminal", False))
 
-        ansi_thumbnails = {}
+        ansi_thumbnails: dict[str, Any] = {}
         from rich.table import Table
         from rich.text import Text
 
