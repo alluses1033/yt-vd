@@ -64,14 +64,74 @@ class TerminalImage:
             yield from Text.from_ansi(self.raw_sequence).__rich_console__(console, options)
 
 
+def query_terminal_cell_size() -> tuple[int, int] | None:
+    """Query the terminal for the character cell size in pixels.
+
+    Sends the CSI 16 t escape sequence and reads the response.
+    Returns (width, height) in pixels, or None on failure/timeout.
+    """
+    import sys
+    if not sys.stdout.isatty() or not sys.stdin.isatty():
+        return None
+
+    try:
+        import re
+        import time
+
+        # Send CSI 16 t
+        sys.stdout.write("\033[16t")
+        sys.stdout.flush()
+
+        response = b""
+        start_time = time.monotonic()
+        timeout = 0.05  # 50ms timeout is plenty for local terminals
+
+        if os.name == "nt":
+            import msvcrt
+            # Flush stdin first
+            while msvcrt.kbhit():
+                msvcrt.getch()
+            # Read response
+            while time.monotonic() - start_time < timeout:
+                if msvcrt.kbhit():
+                    response += msvcrt.getch()
+                    if response.endswith(b"t"):
+                        break
+                else:
+                    time.sleep(0.002)
+        else:
+            import select
+            # Flush stdin first (non-blocking read if data available)
+            while select.select([sys.stdin], [], [], 0.0)[0]:
+                sys.stdin.read(1)
+            # Read response
+            while time.monotonic() - start_time < timeout:
+                r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
+                if r:
+                    char = sys.stdin.read(1).encode("utf-8", errors="ignore")
+                    response += char
+                    if response.endswith(b"t"):
+                        break
+
+        match = re.match(r"^\x1b\[6;(\d+);(\d+)t$", response.decode("ascii", errors="ignore"))
+        if match:
+            height = int(match.group(1))
+            width = int(match.group(2))
+            if width > 0 and height > 0:
+                return width, height
+    except Exception:
+        pass
+    return None
+
+
 def get_terminal_protocol() -> str | None:
     """Detect if the terminal supports a high-resolution graphics protocol.
 
     Detection priority:
       1. Kitty — native graphics protocol (highest fidelity, 24-bit)
       2. iTerm2/WezTerm — iTerm2 inline image protocol (24-bit)
-      3. Sixel — foot, mlterm, mintty, xterm
-      4. None — falls back to ANSI half-block characters (Windows Terminal WT_SESSION fallback)
+      3. Sixel — Windows Terminal (WT_SESSION), foot, mlterm, mintty, xterm
+      4. None — falls back to ANSI half-block characters
     """
     term = os.environ.get("TERM", "").lower()
     term_program = os.environ.get("TERM_PROGRAM", "").lower()
@@ -85,10 +145,9 @@ def get_terminal_protocol() -> str | None:
     if "wezterm" in term_program or "iterm" in term_program or "iterm2" in term_program:
         return "iterm2"
 
-    # Windows Terminal Sixel is currently buggy (vertical stretching & cell scaling issues)
-    # So we explicitly fall back to ANSI half-blocks if running in Windows Terminal
+    # Sixel — Windows Terminal sets WT_SESSION unconditionally
     if wt_session:
-        return None
+        return "sixel"
 
     # Sixel — other known Sixel-capable terminal emulators
     sixel_terms = ("foot", "mlterm", "mintty", "xterm-256color")
@@ -283,10 +342,14 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
                 return TerminalImage(escape_seq, width, height, is_inline=True)
 
             if protocol == "sixel":
-                # Sixel graphics — 256-color adaptive palette with dithering
+                # Sixel graphics — 256-color adaptive palette without dithering
                 # Supported by Windows Terminal (Win 11+), foot, mlterm, mintty, xterm
-                pixel_width = width * 8
-                pixel_height = height * 16
+                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20
+                cell_size = query_terminal_cell_size()
+                cell_w, cell_h = cell_size if cell_size else (10, 20)
+                
+                pixel_width = width * cell_w
+                pixel_height = height * cell_h
                 resized_img = rgb_img.resize(
                     (pixel_width, pixel_height), Image.Resampling.LANCZOS
                 )
