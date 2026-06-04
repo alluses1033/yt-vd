@@ -436,21 +436,23 @@ def get_ansi_thumbnail(
             resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
             pixels = resized_img.load()
 
+            def _px(xc: int, yc: int) -> tuple[int, int, int]:
+                if not pixels:
+                    return (0, 0, 0)
+                val = pixels[xc, yc]
+                if isinstance(val, tuple) and len(val) >= 3:
+                    return cast(tuple[int, int, int], val[:3])
+                return (0, 0, 0)
+
             lines = []
             for y in range(0, pixel_height, 2):
                 line_parts = []
                 for x in range(0, pixel_width, 2):
                     # Gather the 2x2 block: top-left, top-right, bottom-left, bottom-right
-                    p_tl = pixels[x, y][:3] if pixels else (0,0,0)
-                    p_tr = pixels[x + 1, y][:3] if pixels else (0,0,0)
-                    p_bl = pixels[x, y + 1][:3] if pixels else (0,0,0)
-                    p_br = pixels[x + 1, y + 1][:3] if pixels else (0,0,0)
-
-                    # MyPy needs explicit tuples
-                    p_tl = cast(tuple[int, int, int], p_tl)
-                    p_tr = cast(tuple[int, int, int], p_tr)
-                    p_bl = cast(tuple[int, int, int], p_bl)
-                    p_br = cast(tuple[int, int, int], p_br)
+                    p_tl = _px(x, y)
+                    p_tr = _px(x + 1, y)
+                    p_bl = _px(x, y + 1)
+                    p_br = _px(x + 1, y + 1)
 
                     fg, bg, mask = _get_quadrant_block([p_tl, p_tr, p_bl, p_br])
                     char = _QUADRANTS[mask]
