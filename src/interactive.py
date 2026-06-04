@@ -397,6 +397,7 @@ def _action_search() -> None:
 
         def draw_search_results_table():
             nonlocal ansi_thumbnails
+            import shutil
             term_w, _ = shutil.get_terminal_size()
 
             # Determine thumbnail dimensions dynamically based on terminal width
