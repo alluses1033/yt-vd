@@ -407,62 +407,60 @@ def _action_search() -> None:
                 has_results=bool(results),
             )
             show_thumbnails = thumb_size is not None
+
+            console.print("\033[H\033[2J\033[3J", end="")
+
             if show_thumbnails:
                 thumb_w, thumb_h = thumb_size
 
                 if not ansi_thumbnails:
-                    with console.status("[cyan]Rendering thumbnails...[/]"):
-                        ansi_thumbnails = render_result_thumbnails(results, width=thumb_w, height=thumb_h)
+                    with console.status("[cyan]Fetching thumbnails...[/]"):
+                        ansi_thumbnails = render_result_thumbnails(
+                            results, width=thumb_w, height=thumb_h
+                        )
                 else:
-                    ansi_thumbnails = render_result_thumbnails(results, width=thumb_w, height=thumb_h)
-
-            console.print("\033[H\033[2J\033[3J", end="")
-            table = Table(
-                title=f"Search Results (Page {current_page})",
-                show_header=True,
-                header_style="bold cyan",
-                border_style="cyan",
-                expand=True,
-            )
-            table.add_column("#", style="dim", width=4, justify="right")
-            if show_thumbnails:
-                table.add_column("Thumbnail", width=thumb_w, justify="center", no_wrap=True)
-            table.add_column("Title", style="bold white", ratio=3, overflow="ellipsis", no_wrap=True)
-            table.add_column("Channel", style="green", max_width=15, overflow="ellipsis", no_wrap=True)
-            table.add_column("Duration", justify="center", width=10)
-            table.add_column("Views", justify="right", width=12)
-
-            for i, entry in enumerate(results, 1):
-                dur = entry.duration
-                dur_str = format_duration(dur) if dur else "N/A"
-                views = entry.view_count
-                views_str = f"{views:,}" if views else "N/A"
-
-                title_text = entry.title or "Unknown"
-                channel_text = entry.uploader or "Unknown"
-
-                if show_thumbnails:
-                    thumb_ansi = ansi_thumbnails.get(entry.url or "N/A")
-                    thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
-                    table.add_row(
-                        str(i),
-                        thumb_render,
-                        title_text,
-                        channel_text,
-                        dur_str,
-                        views_str,
+                    ansi_thumbnails = render_result_thumbnails(
+                        results, width=thumb_w, height=thumb_h
                     )
-                else:
+
+                # ── Tile layout: image left, text right ──────────────────────
+                from core.presentation import draw_result_tiles
+                draw_result_tiles(
+                    results, ansi_thumbnails,
+                    thumb_w=thumb_w, thumb_h=thumb_h,
+                    terminal_width=term_w, page=current_page,
+                    console=console,
+                )
+            else:
+                # ── Text-only table ──────────────────────────────────────────
+                table = Table(
+                    title=f"Search Results (Page {current_page})",
+                    show_header=True,
+                    header_style="bold cyan",
+                    border_style="cyan",
+                    expand=True,
+                )
+                table.add_column("#", style="dim", width=4, justify="right")
+                table.add_column("Title", style="bold white", ratio=3, overflow="ellipsis", no_wrap=True)
+                table.add_column("Channel", style="green", max_width=18, overflow="ellipsis", no_wrap=True)
+                table.add_column("Duration", justify="center", width=10)
+                table.add_column("Views", justify="right", width=12)
+
+                for i, entry in enumerate(results, 1):
+                    dur = entry.duration
+                    dur_str = format_duration(dur) if dur else "N/A"
+                    views = entry.view_count
+                    views_str = f"{views:,}" if views else "N/A"
                     table.add_row(
                         str(i),
-                        title_text,
-                        channel_text,
+                        entry.title or "Unknown",
+                        entry.uploader or "Unknown",
                         dur_str,
                         views_str,
                     )
 
-            console.print(table)
-            console.print()
+                console.print(table)
+                console.print()
 
         draw_search_results_table()
 
