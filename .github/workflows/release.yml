@@ -18,9 +18,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   quality-gate:
     name: Test, lint, and typecheck
