@@ -1299,42 +1299,64 @@ def uninstall(
 
     console.print("Uninstalling yt-vd...")
 
+    default_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "yt-vd"
+    default_bin = Path.home() / ".local" / "bin" / "yt-vd"
+
+    # Check if this running binary is the standard installation
+    is_standard_install = False
+    if sys.platform == "win32":
+        try:
+            is_standard_install = is_frozen and exe_path.parent.resolve() == default_dir.resolve()
+        except Exception:
+            is_standard_install = is_frozen and exe_path.parent == default_dir
+    else:
+        try:
+            is_standard_install = is_frozen and exe_path.resolve() == default_bin.resolve()
+        except Exception:
+            is_standard_install = is_frozen and exe_path == default_bin
+
+    if is_frozen and not is_standard_install:
+        console.print(
+            f"[yellow]Note: You are running a non-standard or development binary at:[/] {exe_path}\n"
+            f"[yellow]The global installation will be removed, but this binary will be kept.[/]"
+        )
+
     if sys.platform == "win32":
         # Windows-specific uninstall
-        install_dir = None
-        if is_frozen:
-            install_dir = exe_path.parent
-        else:
-            # Fallback to default install dir if not frozen but it exists
-            default_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "yt-vd"
-            if default_dir.exists():
-                install_dir = default_dir
-
         # We launch a detached PowerShell command to clean up after we exit.
         # This is necessary because on Windows we cannot delete the running .exe file.
         ps_parts = ["Start-Sleep -Seconds 1"]
 
-        # Kill running processes of yt-vd/yt-vd-gui (except this one if possible, but force kill is fine since we exit)
+        # Kill running processes of yt-vd/yt-vd-gui
         ps_parts.append("Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue")
 
         def _ps_single_quote(value: str) -> str:
-            # PowerShell single-quoted strings escape single quote by doubling it.
             return value.replace("'", "''")
 
         # Clean config/history
         user_data_str = _ps_single_quote(str(user_data))
         ps_parts.append(f"if (Test-Path '{user_data_str}') {{ Remove-Item '{user_data_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
 
-        # Clean installation folder
-        if install_dir:
-            install_dir_str = _ps_single_quote(str(install_dir))
-            ps_parts.append(f"if (Test-Path '{install_dir_str}') {{ Remove-Item '{install_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
+        # Always clean up the default global install folder
+        default_dir_str = _ps_single_quote(str(default_dir))
+        ps_parts.append(f"if (Test-Path '{default_dir_str}') {{ Remove-Item '{default_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
 
-            # Clean PATH
+        # Remove default install folder from PATH
+        ps_parts.append(
+            f"$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+            f"if ($UserPath) {{ "
+            f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{default_dir_str}' -and $_ -ne '{default_dir_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
+            f"[Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User') "
+            f"}}"
+        )
+
+        # If running from a non-standard path (e.g. D:\yt-vd\dist), we also remove it from user PATH to clean up.
+        if not is_standard_install:
+            exe_parent_str = _ps_single_quote(str(exe_path.parent))
             ps_parts.append(
                 f"$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
                 f"if ($UserPath) {{ "
-                f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{install_dir_str}' -and $_ -ne '{install_dir_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
+                f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{exe_parent_str}' -and $_ -ne '{exe_parent_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
                 f"[Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User') "
                 f"}}"
             )
@@ -1362,22 +1384,21 @@ def uninstall(
             except Exception as e:
                 console.print(f"Warning: Failed to delete config directory: {e}")
 
-        # Delete binary if running frozen binary
-        if is_frozen:
+        # Always delete global binary at default_bin path if it exists
+        if default_bin.exists():
+            try:
+                default_bin.unlink()
+                console.print("Deleted binary from ~/.local/bin.")
+            except Exception as e:
+                console.print(f"Warning: Failed to delete binary at ~/.local/bin: {e}")
+
+        # If running standard install (and it differs from default_bin), delete the running binary
+        if is_frozen and is_standard_install and exe_path != default_bin:
             try:
                 exe_path.unlink()
-                console.print("Deleted binary file.")
+                console.print("Deleted running binary file.")
             except Exception as e:
                 console.print(f"Warning: Failed to delete binary file: {e}")
-        else:
-            # Check default install path ~/.local/bin/yt-vd
-            default_bin = Path.home() / ".local" / "bin" / "yt-vd"
-            if default_bin.exists():
-                try:
-                    default_bin.unlink()
-                    console.print("Deleted binary from ~/.local/bin.")
-                except Exception as e:
-                    console.print(f"Warning: Failed to delete binary at ~/.local/bin: {e}")
 
         console.print("yt-vd has been successfully uninstalled.")
         raise typer.Exit()
