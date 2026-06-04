@@ -87,6 +87,7 @@ def search_youtube(
             "extract_flat": True,
             "ignoreerrors": True,
             "check_formats": False,
+            "playlistend": needed_limit,
             "extractor_args": {
                 "youtube": {
                     "skip": ["dash", "hls"],
@@ -136,6 +137,51 @@ def search_youtube(
     end_idx = page * max_results
     sliced_entries = combined_entries[start_idx:end_idx]
 
+    # Pre-fetch playlist metadata in parallel for playlists on this page
+    playlist_meta = {}
+    playlist_entries = [
+        e for e in sliced_entries
+        if (
+            e.get("_is_playlist", False)
+            or e.get("_type") == "playlist"
+            or "playlist" in e.get("url", "")
+            or "PL" in e.get("id", "")
+        )
+    ]
+    if playlist_entries:
+        def fetch_playlist_info(pl_entry: dict[str, Any]) -> dict[str, Any] | None:
+            pl_url = _entry_url(pl_entry)
+            if not pl_url:
+                return None
+            try:
+                opts = with_base_ydl_opts({
+                    "skip_download": True,
+                    "extract_flat": True,
+                    "ignoreerrors": True,
+                    "playlist_items": "0",
+                })
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(pl_url, download=False)
+                    if info:
+                        return {
+                            "url": pl_url,
+                            "uploader": info.get("uploader") or info.get("channel") or "Unknown",
+                            "view_count": info.get("view_count") or 0,
+                        }
+            except Exception as exc:
+                logger.debug("Failed to fetch playlist info for %s: %s", pl_url, exc)
+            return {
+                "url": pl_url,
+                "uploader": "Unknown",
+                "view_count": 0,
+            }
+
+        with ThreadPoolExecutor(max_workers=len(playlist_entries)) as executor:
+            res_list = executor.map(fetch_playlist_info, playlist_entries)
+            for res in res_list:
+                if res:
+                    playlist_meta[res["url"]] = res
+
     video_infos: list[VideoInfo] = []
     for entry in sliced_entries:
         is_playlist = (
@@ -158,14 +204,24 @@ def search_youtube(
         duration = float(dur_val) if dur_val is not None else 0.0
 
         # Parse views
+        url_val = _entry_url(entry)
+        uploader = entry.get("uploader") or entry.get("channel")
         views_val = entry.get("view_count")
         view_count = int(views_val) if views_val is not None else 0
 
+        if is_playlist:
+            meta = playlist_meta.get(url_val)
+            if meta:
+                uploader = meta["uploader"]
+                view_count = meta["view_count"]
+
+        uploader = uploader or "Unknown"
+
         video_info = VideoInfo(
             title=title,
-            url=_entry_url(entry),
+            url=url_val,
             video_id=entry.get("id", ""),
-            uploader=entry.get("uploader") or entry.get("channel") or "Unknown",
+            uploader=uploader,
             duration=duration,
             view_count=view_count,
             upload_date=entry.get("upload_date", ""),

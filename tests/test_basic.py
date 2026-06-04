@@ -84,3 +84,20 @@ def test_history(tmp_path):
     # Clear history
     history.clear()
     assert len(history.get_all()) == 0
+
+
+def test_ask_with_resize_monitor():
+    from core.utils import ask_with_resize_monitor
+
+    called_on_resize = False
+    def on_resize():
+        nonlocal called_on_resize
+        called_on_resize = True
+
+    res = ask_with_resize_monitor(
+        lambda: "PROMPT_RESULT",
+        on_resize=on_resize
+    )
+    assert res == "PROMPT_RESULT"
+    assert called_on_resize is False
+

@@ -218,6 +218,8 @@ def check_ffmpeg() -> str | None:
         return None
 
 
+
+
 # ──────────────────────────────────────────────
 # Filesystem Helpers
 # ──────────────────────────────────────────────
@@ -292,4 +294,45 @@ def get_best_thumbnail_url(info_dict: dict[str, Any]) -> str:
     return normalize_youtube_thumbnail_url(thumb or "")
 
 
+def ask_with_resize_monitor(
+    prompt_factory: Any,
+    on_resize: Any,
+) -> Any:
+    """Run a prompt-toolkit/questionary prompt while monitoring terminal resize.
 
+    If a terminal resize is detected, the prompt is terminated and on_resize()
+    is called.
+    """
+    import threading
+    import time
+
+    stop_event = threading.Event()
+
+    def monitor_resize() -> None:
+        initial_size = shutil.get_terminal_size()
+        while not stop_event.is_set():
+            current_size = shutil.get_terminal_size()
+            if current_size != initial_size:
+                try:
+                    from prompt_toolkit.application import get_app
+                    app = get_app()
+                    if app and app.is_running:
+                        app.exit(result="RESIZE")
+                        break
+                except Exception:
+                    pass
+            time.sleep(0.1)
+
+    t = threading.Thread(target=monitor_resize)
+    t.daemon = True
+    t.start()
+
+    try:
+        res = prompt_factory()
+    finally:
+        stop_event.set()
+        t.join(timeout=1.0)
+
+    if res == "RESIZE":
+        on_resize()
+    return res

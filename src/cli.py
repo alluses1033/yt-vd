@@ -23,7 +23,7 @@ from constants import (
 from core.display import console, show_result_panel, show_summary_table
 from core.presentation import render_result_thumbnails
 from core.usecases import channel_titles_from_info, playlist_titles_from_info
-from core.utils import format_duration, format_file_size
+from core.utils import ask_with_resize_monitor, format_duration, format_file_size
 
 logger = logging.getLogger(__name__)
 
@@ -600,43 +600,47 @@ def search(
 
         from rich.text import Text
 
-        table = Table(
-            title=f"Search Results (Page {current_page})",
-            show_header=True,
-            header_style="bold cyan",
-            border_style="cyan",
-            expand=True,
-        )
-        table.add_column("#", style="dim", width=4, justify="right")
-        table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
-        table.add_column("Title", style="bold white", ratio=3)
-        table.add_column("Channel", style="green", ratio=1)
-        table.add_column("Duration", justify="center", width=10)
-        table.add_column("Views", justify="right", width=12)
-        table.add_column("Link", style="dim cyan", ratio=2)
-
-        for i, entry in enumerate(results, 1):
-            dur = entry.duration
-            dur_str = format_duration(dur) if dur else "N/A"
-            views = entry.view_count
-            views_str = f"{views:,}" if views else "N/A"
-            entry_url = entry.url or "N/A"
-
-            thumb_ansi = ansi_thumbnails.get(entry_url)
-            thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
-
-            table.add_row(
-                str(i),
-                thumb_render,
-                entry.title or "Unknown",
-                entry.uploader or "Unknown",
-                dur_str,
-                views_str,
-                entry_url,
+        def draw_search_results_table():
+            console.clear()
+            table = Table(
+                title=f"Search Results (Page {current_page})",
+                show_header=True,
+                header_style="bold cyan",
+                border_style="cyan",
+                expand=True,
             )
+            table.add_column("#", style="dim", width=4, justify="right")
+            table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
+            table.add_column("Title", style="bold white", ratio=3)
+            table.add_column("Channel", style="green", no_wrap=True)
+            table.add_column("Duration", justify="center", width=10)
+            table.add_column("Views", justify="right", width=12)
+            table.add_column("Link", style="dim cyan", ratio=2)
 
-        console.print(table)
-        console.print()
+            for i, entry in enumerate(results, 1):
+                dur = entry.duration
+                dur_str = format_duration(dur) if dur else "N/A"
+                views = entry.view_count
+                views_str = f"{views:,}" if views else "N/A"
+                entry_url = entry.url or "N/A"
+
+                thumb_ansi = ansi_thumbnails.get(entry_url)
+                thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
+
+                table.add_row(
+                    str(i),
+                    thumb_render,
+                    entry.title or "Unknown",
+                    entry.uploader or "Unknown",
+                    dur_str,
+                    views_str,
+                    entry_url,
+                )
+
+            console.print(table)
+            console.print()
+
+        draw_search_results_table()
 
         if not sys.stdin.isatty():
             break
@@ -646,15 +650,29 @@ def search(
             choices.append("Previous page of results")
         choices.extend(["New search query", "Exit"])
 
-        action = questionary.select(
-            "What would you like to do next?",
-            choices=choices,
-        ).ask()
+        while True:
+            action = ask_with_resize_monitor(
+                lambda: questionary.select(
+                    "What would you like to do next?",
+                    choices=choices,
+                ).ask(),
+                on_resize=draw_search_results_table
+            )
+            if action != "RESIZE":
+                break
 
         if action == "Download a result":
-            idx_raw = questionary.text(
-                f"Enter result number (1-{len(results)}):"
-            ).ask()
+            while True:
+                idx_raw = ask_with_resize_monitor(
+                    lambda: questionary.text(
+                        f"Enter result number (1-{len(results)}):"
+                    ).ask(),
+                    on_resize=draw_search_results_table
+                )
+                if idx_raw != "RESIZE":
+                    break
+            if idx_raw == "RESIZE":
+                continue
             try:
                 idx = int(idx_raw) - 1
                 if 0 <= idx < len(results):
@@ -1323,55 +1341,86 @@ def uninstall(
 
     if sys.platform == "win32":
         # Windows-specific uninstall
-        # We launch a detached PowerShell command to clean up after we exit.
+        # We write a detached PowerShell script to clean up after we exit.
         # This is necessary because on Windows we cannot delete the running .exe file.
-        ps_parts = ["Start-Sleep -Seconds 1"]
-
-        # Kill running processes of yt-vd/yt-vd-gui
-        ps_parts.append("Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue")
-
         def _ps_single_quote(value: str) -> str:
             return value.replace("'", "''")
 
-        # Clean config/history
         user_data_str = _ps_single_quote(str(user_data))
-        ps_parts.append(f"if (Test-Path '{user_data_str}') {{ Remove-Item '{user_data_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
-
-        # Always clean up the default global install folder
         default_dir_str = _ps_single_quote(str(default_dir))
-        ps_parts.append(f"if (Test-Path '{default_dir_str}') {{ Remove-Item '{default_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue }}")
+        exe_parent_str = _ps_single_quote(str(exe_path.parent))
 
-        # Remove default install folder from PATH
-        ps_parts.append(
-            f"$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
-            f"if ($UserPath) {{ "
-            f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{default_dir_str}' -and $_ -ne '{default_dir_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
-            f"[Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User') "
-            f"}}"
-        )
+        script_content = f"""Start-Transcript -Path "$env:TEMP\\yt-vd-uninstall.log" -Force
+Start-Sleep -Seconds 2
+Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-        # If running from a non-standard path (e.g. D:\yt-vd\dist), we also remove it from user PATH to clean up.
+# Loop to delete user data
+for ($i=0; $i -lt 10; $i++) {{
+    if (Test-Path '{user_data_str}') {{
+        Remove-Item '{user_data_str}' -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+    if (!(Test-Path '{user_data_str}')) {{
+        break
+    }}
+    Start-Sleep -Milliseconds 500
+}}
+
+# Loop to delete default install directory
+for ($i=0; $i -lt 10; $i++) {{
+    Get-Process -Name 'yt-vd', 'yt-vd-gui' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    if (Test-Path '{default_dir_str}') {{
+        Remove-Item '{default_dir_str}' -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+    if (!(Test-Path '{default_dir_str}')) {{
+        break
+    }}
+    Start-Sleep -Milliseconds 500
+}}
+
+# Remove default install folder from PATH
+$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($UserPath) {{
+    $CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{default_dir_str}' -and $_ -ne '{default_dir_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}
+    [Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User')
+}}
+"""
+
         if not is_standard_install:
-            exe_parent_str = _ps_single_quote(str(exe_path.parent))
-            ps_parts.append(
-                f"$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User'); "
-                f"if ($UserPath) {{ "
-                f"$CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{exe_parent_str}' -and $_ -ne '{exe_parent_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}; "
-                f"[Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User') "
-                f"}}"
-            )
+            script_content += f"""
+# Remove development path from user PATH if applicable
+$UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($UserPath) {{
+    $CleanPaths = ($UserPath -split ';') | Where-Object {{ $_ -ne '{exe_parent_str}' -and $_ -ne '{exe_parent_str}\\' -and [string]::IsNullOrWhiteSpace($_) -eq $false }}
+    [Environment]::SetEnvironmentVariable('Path', ($CleanPaths -join ';'), 'User')
+}}
+"""
 
-        ps_cmd = "; ".join(ps_parts)
+        script_content += """
+Stop-Transcript
+# Self delete this script
+Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+"""
 
-        # Launch detached PowerShell
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else 0,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            close_fds=True
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir())
+        script_path = temp_dir / "yt_vd_uninstall_temp.ps1"
+        try:
+            script_path.write_text(script_content, encoding="utf-8")
+        except Exception as exc:
+            logger.debug("Failed to write temporary uninstallation script: %s", exc)
+
+        # Launch detached PowerShell via WMI to break away from any Job objects/sandbox limits
+        ps_cmd = (
+            "Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+            f"-Arguments @{{ CommandLine = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{script_path}\"' }}"
         )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        import time
+        time.sleep(1.0)
         console.print("Cleanup process started in the background. Goodbye!")
         raise typer.Exit()
     else:

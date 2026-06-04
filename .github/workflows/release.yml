@@ -1,5 +1,8 @@
 name: Release
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
@@ -14,6 +17,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   quality-gate:
@@ -148,7 +154,7 @@ jobs:
       matrix:
         include:
           - name: windows
-            os: windows-latest
+            os: windows-2025-vs2026
             cli_asset: yt-vd-windows.exe
             cli_dest: dist/yt-vd.exe
           - name: linux

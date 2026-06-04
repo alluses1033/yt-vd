@@ -11,29 +11,40 @@ Write-Host "========================================="
 Write-Host "           Uninstalling yt-vd            "
 Write-Host "========================================="
 
-# 1. Kill any running processes of yt-vd or its gui
-$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
-if ($RunningProcesses) {
-    Write-Host "Stopping running yt-vd processes..."
-    foreach ($proc in $RunningProcesses) {
-        try {
-            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
-            Write-Host "Stopped process: $($proc.ProcessName) (PID: $($proc.Id))"
-        } catch {
-            Write-Host "Warning: Failed to stop process $($proc.ProcessName): $_"
+# 1. Kill any running processes of yt-vd or its gui (with retry)
+for ($i = 0; $i -lt 5; $i++) {
+    $RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+    if ($RunningProcesses) {
+        Write-Host "Stopping running yt-vd processes..."
+        foreach ($proc in $RunningProcesses) {
+            try {
+                Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+                Write-Host "Stopped process: $($proc.ProcessName) (PID: $($proc.Id))"
+            } catch {
+                Write-Host "Warning: Failed to stop process $($proc.ProcessName): $_"
+            }
         }
+        Start-Sleep -Milliseconds 500
+    } else {
+        break
     }
-    Start-Sleep -Seconds 1
 }
 
-# 2. Clean up AppData Local folders (config, history, database) to leave zero residue
+# 2. Clean up AppData Local folders (config, history, database) to leave zero residue (with retry)
 if (Test-Path -LiteralPath $UserAppDataDir) {
     Write-Host "Removing configuration and history database at $UserAppDataDir..."
-    try {
-        Remove-Item -LiteralPath $UserAppDataDir -Recurse -Force -ErrorAction Stop
-        Write-Host "Successfully deleted config and database directory."
-    } catch {
-        Write-Host "Warning: Failed to remove some config files: $_"
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            Remove-Item -LiteralPath $UserAppDataDir -Recurse -Force -ErrorAction Stop
+            Write-Host "Successfully deleted config and database directory."
+            break
+        } catch {
+            if ($i -eq 9) {
+                Write-Host "Warning: Failed to remove some config files: $_"
+            } else {
+                Start-Sleep -Milliseconds 500
+            }
+        }
     }
 }
 if (Test-Path -LiteralPath $ParentAppDataDir) {
@@ -45,14 +56,22 @@ if (Test-Path -LiteralPath $ParentAppDataDir) {
     }
 }
 
-# 3. Remove binary installation folder
+# 3. Remove binary installation folder (with retry)
 if (Test-Path -LiteralPath $InstallDir) {
     Write-Host "Removing binary files at $InstallDir..."
-    try {
-        Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction Stop
-        Write-Host "Successfully deleted installation directory."
-    } catch {
-        Write-Host "Warning: Failed to remove installation directory completely: $_"
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction Stop
+            Write-Host "Successfully deleted installation directory."
+            break
+        } catch {
+            if ($i -eq 9) {
+                Write-Host "Warning: Failed to remove installation directory completely: $_"
+            } else {
+                Start-Sleep -Milliseconds 500
+            }
+        }
     }
 } else {
     Write-Host "Installation directory not found: $InstallDir"

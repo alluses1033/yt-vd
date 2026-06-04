@@ -27,7 +27,7 @@ from core.display import show_result_panel as _show_result
 from core.display import show_summary_table as _show_results_table
 from core.presentation import render_result_thumbnails
 from core.usecases import playlist_titles_from_info
-from core.utils import format_duration
+from core.utils import ask_with_resize_monitor, format_duration
 
 logger = logging.getLogger(__name__)
 
@@ -399,59 +399,77 @@ def _action_search() -> None:
         from rich.table import Table
         from rich.text import Text
 
-        table = Table(
-            title=f"Search Results (Page {current_page})",
-            show_header=True,
-            header_style="bold cyan",
-            border_style="cyan",
-            expand=True,
-        )
-        table.add_column("#", style="dim", width=4, justify="right")
-        table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
-        table.add_column("Title", style="bold white", ratio=3)
-        table.add_column("Channel", style="green", ratio=1)
-        table.add_column("Duration", justify="center", width=10)
-        table.add_column("Views", justify="right", width=12)
-        table.add_column("Link", style="dim cyan", ratio=2)
-
-        for i, entry in enumerate(results, 1):
-            dur = entry.duration
-            dur_str = format_duration(dur) if dur else "N/A"
-            views = entry.view_count
-            views_str = f"{views:,}" if views else "N/A"
-            entry_url = entry.url or "N/A"
-
-            thumb_ansi = ansi_thumbnails.get(entry_url)
-            thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
-
-            table.add_row(
-                str(i),
-                thumb_render,
-                entry.title or "Unknown",
-                entry.uploader or "Unknown",
-                dur_str,
-                views_str,
-                entry_url,
+        def draw_search_results_table():
+            console.clear()
+            table = Table(
+                title=f"Search Results (Page {current_page})",
+                show_header=True,
+                header_style="bold cyan",
+                border_style="cyan",
+                expand=True,
             )
+            table.add_column("#", style="dim", width=4, justify="right")
+            table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
+            table.add_column("Title", style="bold white", ratio=3)
+            table.add_column("Channel", style="green", no_wrap=True)
+            table.add_column("Duration", justify="center", width=10)
+            table.add_column("Views", justify="right", width=12)
+            table.add_column("Link", style="dim cyan", ratio=2)
 
-        console.print(table)
-        console.print()
+            for i, entry in enumerate(results, 1):
+                dur = entry.duration
+                dur_str = format_duration(dur) if dur else "N/A"
+                views = entry.view_count
+                views_str = f"{views:,}" if views else "N/A"
+                entry_url = entry.url or "N/A"
+
+                thumb_ansi = ansi_thumbnails.get(entry_url)
+                thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
+
+                table.add_row(
+                    str(i),
+                    thumb_render,
+                    entry.title or "Unknown",
+                    entry.uploader or "Unknown",
+                    dur_str,
+                    views_str,
+                    entry_url,
+                )
+
+            console.print(table)
+            console.print()
+
+        draw_search_results_table()
 
         choices = ["Download a result", "Next page of results"]
         if current_page > 1:
             choices.append("Previous page of results")
         choices.extend(["New search query", "Exit"])
 
-        action = questionary.select(
-            "What would you like to do next?",
-            choices=choices,
-            style=CUSTOM_STYLE,
-        ).ask()
+        while True:
+            action = ask_with_resize_monitor(
+                lambda: questionary.select(
+                    "What would you like to do next?",
+                    choices=choices,
+                    style=CUSTOM_STYLE,
+                ).ask(),
+                on_resize=draw_search_results_table
+            )
+            if action != "RESIZE":
+                break
 
         if action == "Download a result":
-            idx_raw = questionary.text(
-                f"Enter result number (1-{len(results)}):", style=CUSTOM_STYLE
-            ).ask()
+            while True:
+                idx_raw = ask_with_resize_monitor(
+                    lambda: questionary.text(
+                        f"Enter result number (1-{len(results)}):", style=CUSTOM_STYLE
+                    ).ask(),
+                    on_resize=draw_search_results_table
+                )
+                if idx_raw != "RESIZE":
+                    break
+            if idx_raw == "RESIZE":
+                continue
             try:
                 idx = int(idx_raw) - 1
                 if 0 <= idx < len(results):
@@ -760,32 +778,47 @@ def _action_history() -> None:
         from rich.table import Table
 
         from core.utils import format_file_size
-        table = Table(
-            title=f"Download History (last {limit})",
-            show_header=True,
-            header_style="bold cyan",
-            border_style="cyan",
-        )
-        table.add_column("#", style="dim", justify="right")
-        table.add_column("Downloaded At", style="cyan")
-        table.add_column("Title", style="bold white")
-        table.add_column("Quality", justify="center")
-        table.add_column("Size", justify="right")
-
-        for idx, entry in enumerate(entries, 1):
-            size = format_file_size(entry["file_size"]) if entry.get("file_size") else "N/A"
-            dt_str = entry.get("downloaded_at", "Unknown")
-            if "T" in dt_str:
-                dt_str = dt_str.split(".")[0].replace("T", " ")
-            table.add_row(
-                str(idx),
-                dt_str,
-                entry.get("title") or "Unknown",
-                entry.get("quality") or "N/A",
-                size,
+        def draw_history_table():
+            console.clear()
+            table = Table(
+                title=f"Download History (last {limit})",
+                show_header=True,
+                header_style="bold cyan",
+                border_style="cyan",
             )
-        console.print()
-        console.print(table)
+            table.add_column("#", style="dim", justify="right")
+            table.add_column("Downloaded At", style="cyan")
+            table.add_column("Title", style="bold white")
+            table.add_column("Quality", justify="center")
+            table.add_column("Size", justify="right")
+
+            for idx, entry in enumerate(entries, 1):
+                size = format_file_size(entry["file_size"]) if entry.get("file_size") else "N/A"
+                dt_str = entry.get("downloaded_at", "Unknown")
+                if "T" in dt_str:
+                    dt_str = dt_str.split(".")[0].replace("T", " ")
+                table.add_row(
+                    str(idx),
+                    dt_str,
+                    entry.get("title") or "Unknown",
+                    entry.get("quality") or "N/A",
+                    size,
+                )
+            console.print()
+            console.print(table)
+            console.print()
+
+        draw_history_table()
+        while True:
+            res = ask_with_resize_monitor(
+                lambda: questionary.press_any_key_to_continue(
+                    "Press any key to return to history menu...",
+                    style=CUSTOM_STYLE
+                ).ask(),
+                on_resize=draw_history_table
+            )
+            if res != "RESIZE":
+                break
 
 
 # ── Main menu loop ───────────────────────────────────────────────────────────
