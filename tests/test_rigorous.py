@@ -670,12 +670,12 @@ def test_search_thumbnail_size_keeps_full_resolution_or_hides():
         has_results=True,
     ) == SEARCH_THUMBNAIL_SIZE
     assert get_search_thumbnail_size(
-        105,
+        115,
         is_terminal=True,
         has_results=True,
     ) == SEARCH_THUMBNAIL_SIZE
     assert get_search_thumbnail_size(
-        104,
+        114,
         is_terminal=True,
         has_results=True,
     ) is None
