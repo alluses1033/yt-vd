@@ -834,7 +834,7 @@ def search(
                         from core.downloader import download_video
                         from core.progress import TerminalProgress
 
-                        with TerminalProgress(console, "Download") as progress_callback:
+                        with TerminalProgress(console, "Download") as download_cb:
                             result = download_video(
                                 url=sel_url,
                                 quality=quality,
@@ -843,7 +843,7 @@ def search(
                                 subtitles=want_subs,
                                 sub_lang=sub_lang,
                                 embed_thumbnail=thumbnail,
-                                progress_callback=progress_callback,
+                                progress_callback=download_cb,
                             )
                         show_result_panel(result)
                 else:
