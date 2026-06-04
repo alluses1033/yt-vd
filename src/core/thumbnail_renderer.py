@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import threading
+import time
 import urllib.request
 from io import BytesIO
 from typing import cast
@@ -68,6 +70,36 @@ _cached_cell_size: tuple[int, int] | None = None
 _cell_size_queried = False
 
 
+def _parse_cell_size_response(response: bytes) -> tuple[int, int] | None:
+    """Parse a CSI 16 t terminal cell-size response as (width, height)."""
+    match = re.search(r"\x1b\[6;(\d+);(\d+)t", response.decode("ascii", errors="ignore"))
+    if not match:
+        return None
+
+    height = int(match.group(1))
+    width = int(match.group(2))
+    if width > 0 and height > 0:
+        return width, height
+    return None
+
+
+def _drain_pending_terminal_input() -> None:
+    """Discard already-buffered terminal input before sending a fresh query."""
+    import sys
+
+    if os.name == "nt":
+        import msvcrt
+
+        while msvcrt.kbhit():  # type: ignore[attr-defined]
+            msvcrt.getch()  # type: ignore[attr-defined]
+        return
+
+    import select
+
+    while select.select([sys.stdin], [], [], 0.0)[0]:
+        sys.stdin.read(1)
+
+
 def query_terminal_cell_size() -> tuple[int, int] | None:
     """Query the terminal for the character cell size in pixels.
 
@@ -79,8 +111,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
         return None
 
     try:
-        import re
-        import time
+        _drain_pending_terminal_input()
 
         # Send CSI 16 t
         sys.stdout.write("\033[16t")
@@ -92,9 +123,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
 
         if os.name == "nt":
             import msvcrt
-            # Flush stdin first
-            while msvcrt.kbhit():  # type: ignore[attr-defined]
-                msvcrt.getch()  # type: ignore[attr-defined]
+
             # Read response
             while time.monotonic() - start_time < timeout:
                 if msvcrt.kbhit():  # type: ignore[attr-defined]
@@ -105,9 +134,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
                     time.sleep(0.002)
         else:
             import select
-            # Flush stdin first (non-blocking read if data available)
-            while select.select([sys.stdin], [], [], 0.0)[0]:
-                sys.stdin.read(1)
+
             # Read response
             while time.monotonic() - start_time < timeout:
                 r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
@@ -117,13 +144,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
                     if response.endswith(b"t"):
                         break
 
-        # Use re.search to be robust against any surrounding terminal noise/buffered keys
-        match = re.search(r"\x1b\[6;(\d+);(\d+)t", response.decode("ascii", errors="ignore"))
-        if match:
-            height = int(match.group(1))
-            width = int(match.group(2))
-            if width > 0 and height > 0:
-                return width, height
+        return _parse_cell_size_response(response)
     except Exception:
         pass
     return None

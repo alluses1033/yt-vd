@@ -7,6 +7,9 @@ from typing import Any
 
 from core.thumbnail_renderer import TerminalImage, get_ansi_thumbnail
 
+SEARCH_THUMBNAIL_SIZE = (32, 12)
+MIN_SEARCH_THUMBNAIL_WIDTH = 105
+
 
 def build_entry_titles(entries: list[dict[str, Any]], *, start_index: int = 1) -> list[str]:
     """Build stable display titles for a list of playlist-like entries."""
@@ -14,6 +17,18 @@ def build_entry_titles(entries: list[dict[str, Any]], *, start_index: int = 1) -
         entry.get("title") or f"Video {idx}"
         for idx, entry in enumerate(entries, start_index)
     ]
+
+
+def get_search_thumbnail_size(
+    terminal_width: int,
+    *,
+    is_terminal: bool,
+    has_results: bool,
+) -> tuple[int, int] | None:
+    """Return the search thumbnail size in terminal cells, or None when hidden."""
+    if not is_terminal or not has_results or terminal_width < MIN_SEARCH_THUMBNAIL_WIDTH:
+        return None
+    return SEARCH_THUMBNAIL_SIZE
 
 
 def render_result_thumbnails(

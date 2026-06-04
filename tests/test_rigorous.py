@@ -604,6 +604,93 @@ def test_ssrf_thumbnail_url_validation():
     assert _is_safe_thumbnail_url("ftp://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg") is False
 
 
+def test_terminal_cell_size_response_parsing():
+    from core.thumbnail_renderer import _parse_cell_size_response
+
+    assert _parse_cell_size_response(b"\x1b[6;20;10t") == (10, 20)
+    assert _parse_cell_size_response(b"noise\x1b[6;19;9textra") == (9, 19)
+    assert _parse_cell_size_response(b"\x1b[6;0;10t") is None
+    assert _parse_cell_size_response(b"not a cell-size response") is None
+
+
+def test_query_terminal_cell_size_drains_before_sending_query(monkeypatch):
+    import select
+    import sys
+
+    import core.thumbnail_renderer as renderer
+
+    events = []
+
+    class FakeStdout:
+        def isatty(self):
+            return True
+
+        def write(self, text):
+            events.append(("write", text))
+
+        def flush(self):
+            events.append(("flush", None))
+
+    class FakeStdin:
+        def __init__(self):
+            self.response = list("\x1b[6;20;10t")
+
+        def isatty(self):
+            return True
+
+        def read(self, size):
+            events.append(("read", size))
+            return self.response.pop(0)
+
+    fake_stdin = FakeStdin()
+
+    def fake_drain():
+        events.append(("drain", None))
+
+    def fake_select(read_list, _write_list, _error_list, _timeout):
+        return (read_list, [], []) if fake_stdin.response else ([], [], [])
+
+    monkeypatch.setattr(sys, "stdin", fake_stdin)
+    monkeypatch.setattr(sys, "stdout", FakeStdout())
+    monkeypatch.setattr(renderer.os, "name", "posix")
+    monkeypatch.setattr(renderer, "_drain_pending_terminal_input", fake_drain)
+    monkeypatch.setattr(select, "select", fake_select)
+
+    assert renderer.query_terminal_cell_size() == (10, 20)
+    assert events[0] == ("drain", None)
+    assert events[1] == ("write", "\x1b[16t")
+
+
+def test_search_thumbnail_size_keeps_full_resolution_or_hides():
+    from core.presentation import SEARCH_THUMBNAIL_SIZE, get_search_thumbnail_size
+
+    assert get_search_thumbnail_size(
+        140,
+        is_terminal=True,
+        has_results=True,
+    ) == SEARCH_THUMBNAIL_SIZE
+    assert get_search_thumbnail_size(
+        105,
+        is_terminal=True,
+        has_results=True,
+    ) == SEARCH_THUMBNAIL_SIZE
+    assert get_search_thumbnail_size(
+        104,
+        is_terminal=True,
+        has_results=True,
+    ) is None
+    assert get_search_thumbnail_size(
+        140,
+        is_terminal=False,
+        has_results=True,
+    ) is None
+    assert get_search_thumbnail_size(
+        140,
+        is_terminal=True,
+        has_results=False,
+    ) is None
+
+
 def test_escape_text_injection_safety():
     from core.display import escape_text
     ansi_string = "\x1B[31mRed Text\x1B[0m"
@@ -626,5 +713,3 @@ def test_database_init_caching(tmp_path):
     with patch.object(DownloadHistory, "_initialize_db") as mock_init:
         DownloadHistory(db_path=db_path)
         mock_init.assert_not_called()
-
-

@@ -21,7 +21,7 @@ from constants import (
     DownloadStatus,
 )
 from core.display import console, show_result_panel, show_summary_table
-from core.presentation import render_result_thumbnails
+from core.presentation import get_search_thumbnail_size, render_result_thumbnails
 from core.usecases import channel_titles_from_info, playlist_titles_from_info
 from core.utils import ask_with_resize_monitor, format_duration, format_file_size
 
@@ -601,17 +601,15 @@ def search(
             import shutil
             term_w, _ = shutil.get_terminal_size()
 
-            # Determine thumbnail dimensions dynamically based on terminal width
-            show_thumbnails = is_term and results and term_w >= 85
+            thumb_size = get_search_thumbnail_size(
+                term_w,
+                is_terminal=is_term,
+                has_results=bool(results),
+            )
+            show_thumbnails = thumb_size is not None
             if show_thumbnails:
-                if term_w >= 130:
-                    thumb_w, thumb_h = 32, 12
-                elif term_w >= 105:
-                    thumb_w, thumb_h = 24, 9
-                else:
-                    thumb_w, thumb_h = 16, 6
+                thumb_w, thumb_h = thumb_size
 
-                # Render/Re-render (uses memory cache, takes milliseconds on subsequent runs)
                 if not ansi_thumbnails:
                     with console.status("[cyan]Rendering thumbnails...[/]"):
                         ansi_thumbnails = render_result_thumbnails(results, width=thumb_w, height=thumb_h)
