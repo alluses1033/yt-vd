@@ -292,45 +292,35 @@ def _is_safe_thumbnail_url(url: str) -> bool:
         return False
 
 
+_thumbnail_bytes_cache: dict[str, bytes] = {}
+
+
 def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalImage | None:
     """Download thumbnail from URL and render it as a TerminalImage.
 
     Resizes the image and uses the best available graphics protocol:
     Kitty, iTerm2/WezTerm, Sixel, or ANSI half-block fallback.
-    Cleans up temporary files immediately.
-
-    Args:
-        url: The thumbnail image URL.
-        width: Number of character columns for the rendered image.
-        height: Number of character rows for the rendered image.
-
-    Returns:
-        TerminalImage object, or None on failure.
     """
     if not url or not url.startswith("http") or not _is_safe_thumbnail_url(url):
         return None
 
-    temp_file = None
+    # Retrieve from cache or download
+    img_bytes = _thumbnail_bytes_cache.get(url)
+    if img_bytes is None:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                img_bytes = response.read()
+                _thumbnail_bytes_cache[url] = img_bytes
+        except Exception:
+            return None
+
     try:
-        suffix = ".jpg"
-        if ".png" in url.lower():
-            suffix = ".png"
-
-        # Create safe temp file
-        fd, temp_path_str = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        temp_file = Path(temp_path_str)
-
-        # Download thumbnail image
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        )
-        with urllib.request.urlopen(req, timeout=5) as response:
-            temp_file.write_bytes(response.read())
-
-        # Load and render using Pillow
-        with Image.open(temp_file) as raw_img:
+        # Load and render using Pillow directly from memory
+        with Image.open(BytesIO(img_bytes)) as raw_img:
             rgb_img = raw_img.convert("RGB")
 
             # Detect terminal protocol
@@ -405,10 +395,3 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
     except Exception:
         # Fail silently and return None
         return None
-    finally:
-        # Clean up temp file immediately after loading
-        if temp_file and temp_file.exists():
-            try:
-                temp_file.unlink()
-            except OSError:
-                pass

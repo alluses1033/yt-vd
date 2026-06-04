@@ -392,15 +392,19 @@ def _action_search() -> None:
         is_term = bool(getattr(console, "is_terminal", False))
 
         ansi_thumbnails = {}
-        if is_term and results:
-            with console.status("[cyan]Rendering thumbnails...[/]"):
-                ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
-
         from rich.table import Table
         from rich.text import Text
 
         def draw_search_results_table():
-            console.clear()
+            nonlocal ansi_thumbnails
+            if is_term and results:
+                if not ansi_thumbnails:
+                    with console.status("[cyan]Rendering thumbnails...[/]"):
+                        ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
+                else:
+                    ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
+
+            console.print("\033[H\033[2J\033[3J", end="")
             table = Table(
                 title=f"Search Results (Page {current_page})",
                 show_header=True,
@@ -779,7 +783,7 @@ def _action_history() -> None:
 
         from core.utils import format_file_size
         def draw_history_table():
-            console.clear()
+            console.print("\033[H\033[2J\033[3J", end="")
             table = Table(
                 title=f"Download History (last {limit})",
                 show_header=True,
