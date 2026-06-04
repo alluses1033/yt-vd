@@ -89,12 +89,12 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
         if os.name == "nt":
             import msvcrt
             # Flush stdin first
-            while msvcrt.kbhit():
-                msvcrt.getch()
+            while msvcrt.kbhit():  # type: ignore[attr-defined]
+                msvcrt.getch()  # type: ignore[attr-defined]
             # Read response
             while time.monotonic() - start_time < timeout:
-                if msvcrt.kbhit():
-                    response += msvcrt.getch()
+                if msvcrt.kbhit():  # type: ignore[attr-defined]
+                    response += msvcrt.getch()  # type: ignore[attr-defined]
                     if response.endswith(b"t"):
                         break
                 else:
