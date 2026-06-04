@@ -70,11 +70,12 @@ def get_terminal_protocol() -> str | None:
     Detection priority:
       1. Kitty — native graphics protocol (highest fidelity, 24-bit)
       2. iTerm2/WezTerm — iTerm2 inline image protocol (24-bit)
-      3. Sixel — Windows Terminal (WT_SESSION), foot, mlterm, mintty, xterm
-      4. None — falls back to ANSI half-block characters
+      3. Sixel — foot, mlterm, mintty, xterm
+      4. None — falls back to ANSI half-block characters (Windows Terminal WT_SESSION fallback)
     """
     term = os.environ.get("TERM", "").lower()
     term_program = os.environ.get("TERM_PROGRAM", "").lower()
+    wt_session = os.environ.get("WT_SESSION", "")
 
     # Kitty — native graphics protocol
     if "kitty" in term or "kitty" in term_program:
@@ -84,11 +85,10 @@ def get_terminal_protocol() -> str | None:
     if "wezterm" in term_program or "iterm" in term_program or "iterm2" in term_program:
         return "iterm2"
 
-    # Sixel — Windows Terminal sets WT_SESSION unconditionally
-    # Modern Windows Terminal (default on Windows 11) supports Sixel natively
-    wt_session = os.environ.get("WT_SESSION", "")
+    # Windows Terminal Sixel is currently buggy (vertical stretching & cell scaling issues)
+    # So we explicitly fall back to ANSI half-blocks if running in Windows Terminal
     if wt_session:
-        return "sixel"
+        return None
 
     # Sixel — other known Sixel-capable terminal emulators
     sixel_terms = ("foot", "mlterm", "mintty", "xterm-256color")
