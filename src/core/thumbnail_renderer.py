@@ -347,7 +347,7 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
                 # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20
                 cell_size = query_terminal_cell_size()
                 cell_w, cell_h = cell_size if cell_size else (10, 20)
-                
+
                 pixel_width = width * cell_w
                 pixel_height = height * cell_h
                 resized_img = rgb_img.resize(
