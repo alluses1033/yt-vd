@@ -397,12 +397,24 @@ def _action_search() -> None:
 
         def draw_search_results_table():
             nonlocal ansi_thumbnails
-            if is_term and results:
+            term_w, _ = shutil.get_terminal_size()
+
+            # Determine thumbnail dimensions dynamically based on terminal width
+            show_thumbnails = is_term and results and term_w >= 85
+            if show_thumbnails:
+                if term_w >= 130:
+                    thumb_w, thumb_h = 32, 12
+                elif term_w >= 105:
+                    thumb_w, thumb_h = 24, 9
+                else:
+                    thumb_w, thumb_h = 16, 6
+
+                # Render/Re-render (uses memory cache, takes milliseconds on subsequent runs)
                 if not ansi_thumbnails:
                     with console.status("[cyan]Rendering thumbnails...[/]"):
-                        ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
+                        ansi_thumbnails = render_result_thumbnails(results, width=thumb_w, height=thumb_h)
                 else:
-                    ansi_thumbnails = render_result_thumbnails(results, width=32, height=12)
+                    ansi_thumbnails = render_result_thumbnails(results, width=thumb_w, height=thumb_h)
 
             console.print("\033[H\033[2J\033[3J", end="")
             table = Table(
@@ -413,7 +425,8 @@ def _action_search() -> None:
                 expand=True,
             )
             table.add_column("#", style="dim", width=4, justify="right")
-            table.add_column("Thumbnail", width=32, justify="center", no_wrap=True)
+            if show_thumbnails:
+                table.add_column("Thumbnail", width=thumb_w, justify="center", no_wrap=True)
             table.add_column("Title", style="bold white", ratio=3)
             table.add_column("Channel", style="green", no_wrap=True)
             table.add_column("Duration", justify="center", width=10)
@@ -427,18 +440,27 @@ def _action_search() -> None:
                 views_str = f"{views:,}" if views else "N/A"
                 entry_url = entry.url or "N/A"
 
-                thumb_ansi = ansi_thumbnails.get(entry_url)
-                thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
-
-                table.add_row(
-                    str(i),
-                    thumb_render,
-                    entry.title or "Unknown",
-                    entry.uploader or "Unknown",
-                    dur_str,
-                    views_str,
-                    entry_url,
-                )
+                if show_thumbnails:
+                    thumb_ansi = ansi_thumbnails.get(entry_url)
+                    thumb_render = thumb_ansi if thumb_ansi else Text("No Image", style="dim")
+                    table.add_row(
+                        str(i),
+                        thumb_render,
+                        entry.title or "Unknown",
+                        entry.uploader or "Unknown",
+                        dur_str,
+                        views_str,
+                        entry_url,
+                    )
+                else:
+                    table.add_row(
+                        str(i),
+                        entry.title or "Unknown",
+                        entry.uploader or "Unknown",
+                        dur_str,
+                        views_str,
+                        entry_url,
+                    )
 
             console.print(table)
             console.print()

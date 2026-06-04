@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import base64
 import os
-import tempfile
 import threading
 import urllib.request
 from io import BytesIO
-from pathlib import Path
 from typing import cast
 from urllib.parse import urlparse
 
