@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import os
 import tempfile
+import threading
 import urllib.request
 from io import BytesIO
 from pathlib import Path
@@ -64,6 +65,11 @@ class TerminalImage:
             yield from Text.from_ansi(self.raw_sequence).__rich_console__(console, options)
 
 
+_cell_size_lock = threading.Lock()
+_cached_cell_size: tuple[int, int] | None = None
+_cell_size_queried = False
+
+
 def query_terminal_cell_size() -> tuple[int, int] | None:
     """Query the terminal for the character cell size in pixels.
 
@@ -84,7 +90,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
 
         response = b""
         start_time = time.monotonic()
-        timeout = 0.05  # 50ms timeout is plenty for local terminals
+        timeout = 0.2  # 200ms timeout is plenty for local terminals
 
         if os.name == "nt":
             import msvcrt
@@ -113,7 +119,8 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
                     if response.endswith(b"t"):
                         break
 
-        match = re.match(r"^\x1b\[6;(\d+);(\d+)t$", response.decode("ascii", errors="ignore"))
+        # Use re.search to be robust against any surrounding terminal noise/buffered keys
+        match = re.search(r"\x1b\[6;(\d+);(\d+)t", response.decode("ascii", errors="ignore"))
         if match:
             height = int(match.group(1))
             width = int(match.group(2))
@@ -122,6 +129,16 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
     except Exception:
         pass
     return None
+
+
+def get_cached_cell_size() -> tuple[int, int] | None:
+    """Query and cache the terminal cell size in pixels thread-safely."""
+    global _cached_cell_size, _cell_size_queried
+    with _cell_size_lock:
+        if not _cell_size_queried:
+            _cached_cell_size = query_terminal_cell_size()
+            _cell_size_queried = True
+        return _cached_cell_size
 
 
 def get_terminal_protocol() -> str | None:
@@ -177,11 +194,11 @@ def _image_to_sixel(img: Image.Image) -> str:
     Returns:
         A complete Sixel escape sequence (DCS ... ST) ready to print.
     """
-    # Quantize to 256-color palette without dithering for sharpest visual quality in terminals
+    # Quantize to 256-color palette with dithering for best visual quality
     quantized = img.quantize(
         colors=256,
         method=Image.Quantize.MEDIANCUT,
-        dither=Image.Dither.NONE,
+        dither=Image.Dither.FLOYDSTEINBERG,
     )
     palette_data = quantized.getpalette()  # flat [R, G, B, R, G, B, ...] list
     pixels = quantized.load()
@@ -252,8 +269,8 @@ def _image_to_sixel(img: Image.Image) -> str:
     sixel_data = "".join(parts)
 
     # Wrap in DCS (Device Control String): ESC P <params> q <data> ESC \
-    # Parameters: P1=7 (1:1 aspect ratio), P2=0 (no background), P3=0 (horizontal grid)
-    return f"\033P7;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
+    # Parameters: P1=0 (normal aspect), P2=0 (no background), P3=0 (horizontal grid)
+    return f"\033P0;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
 
 
 def _is_safe_thumbnail_url(url: str) -> bool:
@@ -342,11 +359,11 @@ def get_ansi_thumbnail(url: str, width: int = 16, height: int = 6) -> TerminalIm
                 return TerminalImage(escape_seq, width, height, is_inline=True)
 
             if protocol == "sixel":
-                # Sixel graphics — 256-color adaptive palette without dithering
+                # Sixel graphics — 256-color adaptive palette with dithering
                 # Supported by Windows Terminal (Win 11+), foot, mlterm, mintty, xterm
-                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20
-                cell_size = query_terminal_cell_size()
-                cell_w, cell_h = cell_size if cell_size else (10, 20)
+                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 8x16
+                cell_size = get_cached_cell_size()
+                cell_w, cell_h = cell_size if cell_size else (8, 16)
 
                 pixel_width = width * cell_w
                 pixel_height = height * cell_h
