@@ -394,7 +394,6 @@ def _action_search() -> None:
 
         ansi_thumbnails: dict[str, Any] = {}
         from rich.table import Table
-        from rich.text import Text
 
         def draw_search_results_table():
             nonlocal ansi_thumbnails

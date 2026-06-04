@@ -17,7 +17,7 @@ from io import BytesIO
 from typing import cast
 from urllib.parse import urlparse
 
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from rich.segment import Segment
 
 
@@ -402,7 +402,6 @@ def get_ansi_thumbnail(
 
             # Sharpen after downscale — LANCZOS is smooth but loses crispness at
             # small sizes.  UnsharpMask recovers edge definition without halos.
-            from PIL import ImageFilter, ImageEnhance
             resized_img = resized_img.filter(
                 ImageFilter.UnsharpMask(radius=0.8, percent=160, threshold=2)
             )

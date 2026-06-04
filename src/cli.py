@@ -594,7 +594,6 @@ def search(
         is_term = bool(getattr(console, "is_terminal", False))
 
         ansi_thumbnails: dict[str, Any] = {}
-        from rich.text import Text
 
         def draw_search_results_table():
             nonlocal ansi_thumbnails
