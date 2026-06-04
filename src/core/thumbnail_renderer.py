@@ -20,6 +20,40 @@ from urllib.parse import urlparse
 from PIL import Image
 from rich.segment import Segment
 
+_QUADRANTS = {
+    0: ' ', 1: '▘', 2: '▝', 3: '▀',
+    4: '▖', 5: '▌', 6: '▞', 7: '▛',
+    8: '▗', 9: '▚', 10: '▐', 11: '▜',
+    12: '▄', 13: '▙', 14: '▟', 15: '█',
+}
+
+def _get_quadrant_block(pixels: list[tuple[int, int, int]]) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+    """Calculate the best foreground/background colors and quadrant character for a 2x2 pixel block."""
+    max_d = -1
+    fg = pixels[0]
+    bg = pixels[0]
+    # Find the two most distinct colors in the 4 pixels
+    for i in range(4):
+        for j in range(i + 1, 4):
+            d = sum((pixels[i][k] - pixels[j][k]) ** 2 for k in range(3))
+            if d > max_d:
+                max_d = d
+                fg = pixels[i]
+                bg = pixels[j]
+    
+    if max_d == 0:
+        return fg, fg, 15
+
+    mask = 0
+    # Assign each pixel to the closest of the two distinct colors
+    for i, p in enumerate(pixels):
+        d_fg = sum((p[k] - fg[k]) ** 2 for k in range(3))
+        d_bg = sum((p[k] - bg[k]) ** 2 for k in range(3))
+        if d_fg < d_bg:
+            mask |= (1 << i)
+            
+    return fg, bg, mask
+
 
 class ControlSegment(Segment):
     """Segment with cell length of zero, used to output raw escape sequences."""
@@ -396,29 +430,36 @@ def get_ansi_thumbnail(
                 sixel_seq = _image_to_sixel(resized_img)
                 return TerminalImage(sixel_seq, width, height, is_inline=True)
 
-            # Fallback: ANSI Unicode half-block characters
-            # We need height * 2 because each char cell represents 2 vertical pixels
-            resized_img = rgb_img.resize((width, height * 2), Image.Resampling.LANCZOS)
+            # Fallback: ANSI Unicode Quadrant block characters (2x2 pixels per cell)
+            pixel_width = width * 2
+            pixel_height = height * 2
+            resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
+            pixels = resized_img.load()
 
             lines = []
-            for y in range(0, height * 2, 2):
+            for y in range(0, pixel_height, 2):
                 line_parts = []
-                for x in range(width):
-                    pixel1 = resized_img.getpixel((x, y))
-                    pixel2 = resized_img.getpixel((x, y + 1))
+                for x in range(0, pixel_width, 2):
+                    # Gather the 2x2 block: top-left, top-right, bottom-left, bottom-right
+                    p_tl = pixels[x, y][:3] if pixels else (0,0,0)
+                    p_tr = pixels[x + 1, y][:3] if pixels else (0,0,0)
+                    p_bl = pixels[x, y + 1][:3] if pixels else (0,0,0)
+                    p_br = pixels[x + 1, y + 1][:3] if pixels else (0,0,0)
+                    
+                    # MyPy needs explicit tuples
+                    p_tl = cast(tuple[int, int, int], p_tl)
+                    p_tr = cast(tuple[int, int, int], p_tr)
+                    p_bl = cast(tuple[int, int, int], p_bl)
+                    p_br = cast(tuple[int, int, int], p_br)
 
-                    # MyPy needs type narrowing to unpack
-                    if isinstance(pixel1, tuple) and isinstance(pixel2, tuple):
-                        r1, g1, b1 = pixel1[:3]
-                        r2, g2, b2 = pixel2[:3]
-                    else:
-                        r1 = g1 = b1 = 0
-                        r2 = g2 = b2 = 0
+                    fg, bg, mask = _get_quadrant_block([p_tl, p_tr, p_bl, p_br])
+                    char = _QUADRANTS[mask]
 
-                    # \033[38;2;R;G;Bm sets foreground (lower half block)
-                    # \033[48;2;R;G;Bm sets background (upper half block)
-                    # \u2584 is the lower half block character
-                    part = f"\033[38;2;{r2};{g2};{b2};48;2;{r1};{g1};{b1}m\u2584"
+                    # \033[38;2;R;G;Bm sets foreground
+                    # \033[48;2;R;G;Bm sets background
+                    r1, g1, b1 = fg
+                    r2, g2, b2 = bg
+                    part = f"\033[38;2;{r1};{g1};{b1};48;2;{r2};{g2};{b2}m{char}"
                     line_parts.append(part)
                 line_parts.append("\033[0m")  # reset style
                 lines.append("".join(line_parts))

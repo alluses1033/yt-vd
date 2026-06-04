@@ -7,8 +7,8 @@ from typing import Any
 
 from core.thumbnail_renderer import TerminalImage, get_ansi_thumbnail
 
-SEARCH_THUMBNAIL_SIZE = (32, 12)
-MIN_SEARCH_THUMBNAIL_WIDTH = 105
+SEARCH_THUMBNAIL_SIZE = (43, 12)
+MIN_SEARCH_THUMBNAIL_WIDTH = 115
 
 
 def build_entry_titles(entries: list[dict[str, Any]], *, start_index: int = 1) -> list[str]:
