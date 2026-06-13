@@ -886,6 +886,13 @@ ACTIONS: dict[str, Callable[[], None]] = {
 
 def run_interactive() -> None:
     """Launch the interactive yt-vd menu loop."""
+    # Drain any startup keystrokes (like double Enter from launching the app)
+    from core.thumbnail_renderer import _drain_pending_terminal_input
+    try:
+        _drain_pending_terminal_input()
+    except Exception:
+        pass
+
     console.print()
     console.print(
         Panel(
