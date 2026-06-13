@@ -402,6 +402,7 @@ def _action_search() -> None:
         def draw_search_results_table():
             nonlocal ansi_thumbnails
             import shutil
+            import sys
             term_w, _ = shutil.get_terminal_size()
 
             thumb_size = get_search_thumbnail_size(
@@ -411,7 +412,8 @@ def _action_search() -> None:
             )
             show_thumbnails = thumb_size is not None
 
-            console.print("\033[H\033[2J\033[3J", end="")
+            sys.stdout.write("\033[H\033[2J\033[3J")
+            sys.stdout.flush()
 
             if show_thumbnails:
                 thumb_w, thumb_h = thumb_size

@@ -612,7 +612,8 @@ def search(
             )
             show_thumbnails = thumb_size is not None
 
-            console.print("\033[H\033[2J\033[3J", end="")
+            sys.stdout.write("\033[H\033[2J\033[3J")
+            sys.stdout.flush()
 
             if show_thumbnails:
                 thumb_w, thumb_h = thumb_size

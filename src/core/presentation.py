@@ -118,6 +118,7 @@ def draw_result_tiles(
         f"\n[bold cyan]  Search Results — Page {page}[/]  "
         f"[dim](select by number below)[/]\n"
     )
+    sys.stdout.flush()
 
     for i, entry in enumerate(results, 1):
         url = getattr(entry, "url", "") or ""
@@ -159,10 +160,10 @@ def draw_result_tiles(
                 f"\033[{thumb_w + 3}C"
                 f"\033[32m{channel}\033[0m  \033[36m{dur}\033[0m  {views}\r\n"
             )
-            # Advance past the remaining image rows so the separator lands below
+            # Advance past the remaining image rows using newlines to force terminal scrolling/allocation
             remaining = thumb_h - 2
             if remaining > 0:
-                sys.stdout.write(f"\033[{remaining}B")
+                sys.stdout.write("\n" * remaining)
             sys.stdout.flush()
 
         else:
