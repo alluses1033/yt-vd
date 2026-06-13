@@ -85,7 +85,7 @@ def _enable_vt_mode_windows() -> None:
         return
     try:
         import ctypes
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         # ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
         h_stdin = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
         mode_in = ctypes.c_ulong()
