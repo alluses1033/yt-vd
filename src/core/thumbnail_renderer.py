@@ -116,6 +116,58 @@ def _drain_pending_terminal_input() -> None:
     while select.select([sys.stdin], [], [], 0.0)[0]:
         sys.stdin.read(1)
 
+def _read_vt_sequence_unix(query: str, end_char: bytes, timeout: float = 0.4) -> bytes:
+    """Send a VT query and read the response in raw mode on Unix/Linux."""
+    import sys
+
+    if os.name == "nt":
+        return b""
+
+    try:
+        import select
+        import termios
+        import tty
+    except ImportError:
+        return b""
+
+    if not sys.stdin.isatty():
+        return b""
+
+    fd = sys.stdin.fileno()
+    try:
+        old_settings = termios.tcgetattr(fd)  # type: ignore[attr-defined]
+    except Exception:
+        return b""
+
+    try:
+        # Set raw mode to disable echo and line buffering
+        tty.setraw(fd)  # type: ignore[attr-defined]
+
+        # Send query
+        sys.stdout.write(query)
+        sys.stdout.flush()
+
+        response = b""
+        start_time = time.monotonic()
+        while time.monotonic() - start_time < timeout:
+            r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
+            if r:
+                char = sys.stdin.read(1).encode("utf-8", errors="ignore")
+                response += char
+                if response.endswith(end_char):
+                    break
+            else:
+                break
+        return response
+    except Exception:
+        return b""
+    finally:
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
 def query_terminal_cell_size() -> tuple[int, int] | None:
     """Query the terminal for the character cell size in pixels.
 
@@ -130,15 +182,14 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
         _enable_vt_mode_windows()
         _drain_pending_terminal_input()
 
-        # Send CSI 16 t
-        sys.stdout.write("\033[16t")
-        sys.stdout.flush()
-
-        response = b""
-        start_time = time.monotonic()
-        timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
-
         if os.name == "nt":
+            # Send CSI 16 t
+            sys.stdout.write("\033[16t")
+            sys.stdout.flush()
+
+            response = b""
+            start_time = time.monotonic()
+            timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
             import msvcrt
 
             # Read response
@@ -150,21 +201,13 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
                 else:
                     time.sleep(0.002)
         else:
-            import select
-
-            # Read response
-            while time.monotonic() - start_time < timeout:
-                r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
-                if r:
-                    char = sys.stdin.read(1).encode("utf-8", errors="ignore")
-                    response += char
-                    if response.endswith(b"t"):
-                        break
+            response = _read_vt_sequence_unix("\033[16t", b"t", timeout=0.4)
 
         return _parse_cell_size_response(response)
     except Exception:
         pass
     return None
+
 
 def get_cached_cell_size() -> tuple[int, int] | None:
     """Query and cache the terminal cell size in pixels thread-safely."""
@@ -197,14 +240,13 @@ def _query_sixel_support() -> bool:
         _enable_vt_mode_windows()
         _drain_pending_terminal_input()
 
-        sys.stdout.write("\033[c")
-        sys.stdout.flush()
-
-        response = b""
-        start_time = time.monotonic()
-        timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
-
         if os.name == "nt":
+            sys.stdout.write("\033[c")
+            sys.stdout.flush()
+
+            response = b""
+            start_time = time.monotonic()
+            timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
             import msvcrt
 
             while time.monotonic() - start_time < timeout:
@@ -215,15 +257,7 @@ def _query_sixel_support() -> bool:
                 else:
                     time.sleep(0.002)
         else:
-            import select
-
-            while time.monotonic() - start_time < timeout:
-                r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
-                if r:
-                    char = sys.stdin.read(1).encode("utf-8", errors="ignore")
-                    response += char
-                    if response.endswith(b"c"):
-                        break
+            response = _read_vt_sequence_unix("\033[c", b"c", timeout=0.4)
 
         decoded = response.decode("ascii", errors="ignore")
         match = re.search(r"\x1b\[\?(\d+(?:;\d+)*)c", decoded)
