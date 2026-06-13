@@ -3,7 +3,7 @@ set -eu
 
 repo="alluses1033/yt-vd"
 install_dir="${HOME}/.local/bin"
-base_url="https://github.com/${repo}/releases/download/latest"
+base_url="https://github.com/${repo}/releases/latest/download"
 
 os="$(uname -s)"
 if [ "$os" = "Linux" ]; then
