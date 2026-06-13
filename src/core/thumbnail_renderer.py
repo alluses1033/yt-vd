@@ -266,15 +266,16 @@ def get_terminal_protocol() -> str | None:
     if "wezterm" in term_program or "iterm" in term_program or "iterm2" in term_program:
         return "iterm2"
 
-    # Sixel — actively probe via DA1 instead of guessing from TERM
-    if get_cached_sixel_support():
-        return "sixel"
-
     # Fallback for modern Sixel-capable Windows Terminal and VS Code environments
-    # where the DA1 (CSI c) query might not be exposed, returned, or handled.
+    # where Sixel support is guaranteed. Checking these first avoids running active
+    # terminal queries (which print raw '[c' characters if terminal processing is delayed).
     if "WT_SESSION" in os.environ:
         return "sixel"
     if os.environ.get("TERM_PROGRAM") == "vscode":
+        return "sixel"
+
+    # Sixel — actively probe via DA1 instead of guessing from TERM
+    if get_cached_sixel_support():
         return "sixel"
 
     return None
@@ -473,9 +474,13 @@ def get_ansi_thumbnail(
             if protocol == "sixel":
                 # Sixel graphics — 256-color adaptive palette with dithering
                 # Supported by Windows Terminal (Win 11+), foot, mlterm, mintty, xterm
-                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20
-                cell_size = get_cached_cell_size()
-                cell_w, cell_h = cell_size if cell_size else (10, 20)
+                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20.
+                # Bypass active cell size queries on WT/VSCode to prevent raw escape codes ([16t) on some shells.
+                if "WT_SESSION" in os.environ or os.environ.get("TERM_PROGRAM") == "vscode":
+                    cell_w, cell_h = (10, 20)
+                else:
+                    cell_size = get_cached_cell_size()
+                    cell_w, cell_h = cell_size if cell_size else (10, 20)
 
                 pixel_width = width * cell_w
                 pixel_height = height * cell_h
