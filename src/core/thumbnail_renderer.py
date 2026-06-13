@@ -270,6 +270,13 @@ def get_terminal_protocol() -> str | None:
     if get_cached_sixel_support():
         return "sixel"
 
+    # Fallback for modern Sixel-capable Windows Terminal and VS Code environments
+    # where the DA1 (CSI c) query might not be exposed, returned, or handled.
+    if "WT_SESSION" in os.environ:
+        return "sixel"
+    if os.environ.get("TERM_PROGRAM") == "vscode":
+        return "sixel"
+
     return None
 
 def _image_to_base64_png(img: Image.Image) -> str:

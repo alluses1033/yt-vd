@@ -1,292 +1,212 @@
-# yt-vd
+# 🎥 yt-vd
 
-A terminal YouTube downloader for videos, playlists, audio, clips, chapters, subtitles, thumbnails, and download history.
+[![License](https://img.shields.io/github/license/alluses1033/yt-vd)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/alluses1033/yt-vd)](https://github.com/alluses1033/yt-vd/releases/latest)
+[![Tests Status](https://img.shields.io/github/actions/workflow/status/alluses1033/yt-vd/release.yml?label=tests)](https://github.com/alluses1033/yt-vd/actions)
 
-Repository: <https://github.com/alluses1033/yt-vd>
+A high-performance, feature-rich terminal YouTube downloader for videos, playlists, audio, clips, chapters, subtitles, and thumbnails. Built on top of `yt-dlp` and optimized for speed, safety, and a premium CLI experience.
 
-> yt-vd is not affiliated with YouTube or Google. Use it only for content you have the right to download.
+> **Disclaimer**: *yt-vd is not affiliated with YouTube or Google. Please use this tool only for downloading content you have the legal right to access.*
 
-## Features
+---
 
-- Interactive CLI: run `yt-vd` and choose what to do.
-- Standard CLI commands for scripts and power users.
-- Video downloads with quality caps and automatic fallback.
-- Playlist, channel, batch, chapter, and clip downloads.
-- Audio extraction to MP3, M4A, OPUS, FLAC, and WAV.
-- Subtitles with manual subtitle and auto-caption fallback.
-- Thumbnail and metadata embedding.
-- Download progress in CLI.
-- Local SQLite download history.
-- Standalone binary builds with PyInstaller.
+## ✨ Features
 
-## Quick Install
+- 💻 **Interactive TUI**: Simply run `yt-vd` to launch a guided selection menu.
+- 🚀 **Parallel Downloads**: Speeds up playlist downloads using concurrent workers.
+- 🛡️ **Fail-Safe Integrity**: Auto-checks downloaded file integrity and manages active temp directories safely.
+- 🎨 **Rich Graphics**: Renders inline high-resolution Sixel/Kitty thumbnails on supported terminals with ANSI fallback.
+- 📊 **Local History**: Kept in a local SQLite database for easy lookups and tracking.
+- 🎵 **Audio Extraction**: High-fidelity extraction to MP3, M4A, OPUS, FLAC, or WAV.
+- ✂️ **Clips & Chapters**: Download specific video timeframes or split videos automatically by chapters.
+- 📝 **Subtitles & Captions**: Download and embed subtitles with automatic caption fallback.
+- 🤖 **SponsorBlock**: Auto-skips sponsor segments during download.
 
-### Windows
+---
+
+## 🚀 Installation
+
+### 1. Windows
+
 You can install the compiled standalone binary via **Winget** or PowerShell:
 
-* **Via Winget (Recommended):**
+- **Via Winget (Recommended):**
   ```cmd
   winget install alluses1033.yt-vd
   ```
-
-* **Via PowerShell bootstrap script:**
+- **Via PowerShell bootstrap script:**
   ```powershell
   irm https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.ps1 | iex
   ```
-  *(Then open a new PowerShell window and run `yt-vd --help`)*
+  *(After installation, restart your terminal and run `yt-vd --help`)*
 
-### macOS
-You can install using **Homebrew** or the shell script:
+### 2. macOS
 
-* **Via Homebrew Tap:**
+Install using **Homebrew** or the shell script:
+
+- **Via Homebrew Tap:**
   ```bash
   brew tap alluses1033/tap
   brew install yt-vd
   ```
-
-* **Via installation script:**
+- **Via installation script:**
   ```bash
   curl -fsSL https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.sh | sh
   ```
 
-### Linux
+### 3. Linux
+
 Install the standalone binary via curl:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alluses1033/yt-vd/main/install.sh | sh
 ```
+*(If `yt-vd` is not found after running the script on Linux/macOS, append `export PATH="$HOME/.local/bin:$PATH"` to your shell profile, e.g. `~/.bashrc` or `~/.zshrc`)*
 
-If `yt-vd` is not found after running the script on Linux/macOS, add this to your shell profile (e.g. `~/.bashrc`, `~/.zshrc`):
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+---
 
-## Required Dependency
+## 📦 Required Dependency: FFmpeg
 
-Install FFmpeg. It is required for merging video/audio streams, extracting audio, thumbnails, subtitles, and metadata.
+FFmpeg is **required** for merging video/audio formats, extracting audio, and embedding thumbnails/subtitles.
 
-### Windows
+- **Windows**: `winget install Gyan.FFmpeg`
+- **macOS**: `brew install ffmpeg`
+- **Ubuntu/Debian**: `sudo apt update && sudo apt install -y ffmpeg`
 
-```powershell
-winget install Gyan.FFmpeg
-```
+---
 
-### macOS
+## 🛠️ Installation from Source
 
-```bash
-brew install ffmpeg
-```
-
-### Ubuntu / Debian
+If you prefer to run or develop the Python codebase directly:
 
 ```bash
-sudo apt update
-sudo apt install ffmpeg
-```
-
-## Install From Source
-
-Use this if you want to run or develop the Python project directly.
-
-```bash
+# Clone the repository
 git clone https://github.com/alluses1033/yt-vd.git
 cd yt-vd
+
+# Sync dependencies using uv (recommended)
 uv sync
 uv run yt-vd --help
 ```
 
-Without `uv`:
-
+Without `uv`, standard pip tools can be used:
 ```bash
 python -m venv .venv
-.\.venv\Scripts\activate
+# On Windows: .\.venv\Scripts\activate
+# On Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 yt-vd --help
 ```
 
-On Linux/macOS, activate with:
+---
+
+## 📖 Quick Reference & Common Commands
 
 ```bash
-source .venv/bin/activate
-```
-
-## Common Commands
-
-```bash
-# Interactive menu
+# Start the interactive UI
 yt-vd
 
-# GUI
+# Launch GUI mode (if configured)
 yt-vd-gui
 
-# Download one video
+# Download a video with default settings
 yt-vd download "https://www.youtube.com/watch?v=VIDEO_ID"
 
-# Download video with subtitles
-yt-vd download "URL" --subtitles --sub-lang en
+# Download with subtitles & custom output directory
+yt-vd download "URL" --subtitles --sub-lang en --output ~/Downloads
 
-# Download up to 1080p as MKV
-yt-vd download "URL" --quality high --format mkv
+# Download a playlist using 4 concurrent download workers
+yt-vd playlist "PLAYLIST_URL" --parallel 4 --start 1 --end 10
 
-# Download a playlist with 4 workers
-yt-vd playlist "PLAYLIST_URL" --parallel 4
-
-# Download playlist range
-yt-vd playlist "PLAYLIST_URL" --start 5 --end 20
-
-# Extract MP3 audio
+# Extract high-quality MP3 audio with embedded album art
 yt-vd audio "URL" --format mp3 --bitrate 320k --thumbnail
 
-# Search YouTube
+# Search YouTube and select a result to download
 yt-vd search "lofi coding music" --results 10
 
-# Download a clip
+# Download a specific clip range
 yt-vd clip "URL" --start 01:30 --end 03:45
 
-# Split by chapters
+# Download a video split automatically by chapters
 yt-vd chapters "URL"
 
-# Show history
+# View local download history database
 yt-vd history
-
-# Clear history
-yt-vd history --clear
 ```
+> ⚠️ **Note**: Always wrap YouTube URLs in double quotes (`"URL"`) in terminal shells to avoid parser errors with special characters like `&`.
 
-Quote URLs in PowerShell, bash, and zsh. This matters when URLs contain `&`.
+---
 
-## Command Reference
+## 📋 Command Reference
 
 ### `yt-vd download URL`
-
 Download a single video.
 
-| Flag | Short | Default | Description |
-| --- | --- | --- | --- |
-| `--quality` | `-q` | `best` | Quality preset or resolution. |
-| `--format` | `-f` | `mp4` | Output container: `mp4`, `mkv`, `webm`. |
-| `--output` | `-o` | `.` | Output directory. |
-| `--subtitles` | `-s` | off | Download and embed subtitles. |
-| `--sub-lang` | | `en` | Subtitle language code, for example `en`, `hi`, `ja`. |
-| `--thumbnail` | | off | Embed thumbnail. |
-| `--sponsorblock` | | off | Remove sponsor segments when available. |
-| `--verbose` | `-v` | off | Enable extra logs. |
+| Option | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--quality` | `-q` | `best` | Preset quality (`best`, `high`, `medium`, `better`, `low`, `lowest`) or exact resolution cap (e.g. `1080p`, `720p`). |
+| `--format` | `-f` | `mp4` | Output container format: `mp4`, `mkv`, `webm`. |
+| `--output` | `-o` | `.` | Output directory for the finished file. |
+| `--subtitles`| `-s` | `False` | Download and embed subtitles in the video. |
+| `--sub-lang` | | `en` | Subtitle language code (e.g., `en`, `hi`, `ja`, `es`). |
+| `--thumbnail`| | `False`| Download and embed video thumbnail. |
+| `--sponsorblock`| | `False`| Remove sponsor segments using SponsorBlock API. |
+| `--verbose`  | `-v` | `False`| Print verbose debugging output. |
 
 ### `yt-vd playlist URL`
-
 Download videos from a playlist.
 
-| Flag | Short | Default | Description |
-| --- | --- | --- | --- |
-| `--quality` | `-q` | `best` | Quality preset or resolution. |
-| `--format` | `-f` | `mp4` | Output container. |
+| Option | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--quality` | `-q` | `best` | Preset quality or resolution cap. |
+| `--format` | `-f` | `mp4` | Output container format. |
 | `--output` | `-o` | `.` | Output directory. |
-| `--start` | | `1` | First playlist item, 1-based. |
-| `--end` | | all | Last playlist item, inclusive. |
-| `--parallel` | `-p` | CPU based | Number of download workers. |
-| `--subtitles` | `-s` | off | Download subtitles for each video. |
+| `--start` | | `1` | First playlist index to download (1-based). |
+| `--end` | | `None` | Last playlist index to download (inclusive). |
+| `--parallel`| `-p` | *CPU-based*| Number of parallel worker threads. |
+| `--subtitles`| `-s` | `False` | Download subtitles. |
 | `--sub-lang` | | `en` | Subtitle language. |
-| `--thumbnail` | | off | Embed thumbnails. |
-| `--sponsorblock` | | off | Remove sponsor segments when available. |
+| `--thumbnail`| | `False`| Embed video thumbnails. |
 
 ### `yt-vd audio URL`
+Extract audio track only.
 
-Extract audio only.
-
-| Flag | Short | Default | Description |
-| --- | --- | --- | --- |
-| `--format` | `-f` | `mp3` | `mp3`, `m4a`, `opus`, `flac`, `wav`. |
-| `--bitrate` | `-b` | `320k` | `128k`, `192k`, `256k`, `320k`. |
+| Option | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--format` | `-f` | `mp3` | Target audio format: `mp3`, `m4a`, `opus`, `flac`, `wav`. |
+| `--bitrate` | `-b` | `320k` | Audio bitrate: `128k`, `192k`, `256k`, `320k`. |
 | `--output` | `-o` | `.` | Output directory. |
-| `--thumbnail` | | off | Embed thumbnail as album art. |
+| `--thumbnail`| | `False`| Embed thumbnail as audio album art. |
 
-### Other Commands
+### Auxiliary Commands
 
 | Command | Description |
-| --- | --- |
-| `yt-vd search QUERY` | Search YouTube and optionally download a result. |
-| `yt-vd channel URL --last 10` | Download recent channel uploads. |
-| `yt-vd batch urls.txt` | Download URLs from a text file. |
-| `yt-vd clip URL --start 00:30 --end 01:00` | Download a time range. |
-| `yt-vd chapters URL` | Download a video split by chapters. |
-| `yt-vd info URL` | Show video information without downloading. |
-| `yt-vd history` | Show local download history. |
-| `yt-vd manual` | Show short built-in help. |
+| :--- | :--- |
+| `yt-vd search QUERY` | Search YouTube and optionally choose a result to download. |
+| `yt-vd channel URL --last 10` | Download the most recent uploads from a YouTube channel. |
+| `yt-vd batch urls.txt` | Read and download list of URLs from a local text file. |
+| `yt-vd clip URL --start 00:30 --end 01:00` | Download a specific clip time frame. |
+| `yt-vd chapters URL` | Download a video split automatically into separate chapter files. |
+| `yt-vd info URL` | Fetch and print video metadata without downloading. |
+| `yt-vd history` | View local SQLite download logs (`--clear` flag empties logs). |
+| `yt-vd uninstall` | Completely uninstall `yt-vd` (deletes binaries, configs, database, and cleans PATH). |
 
-## Quality Values
+---
 
-| Value | Meaning |
-| --- | --- |
-| `best` | Best available quality. |
-| `high` | Up to 1080p. |
-| `medium` | Up to 720p. |
-| `better` | Up to 480p. |
-| `low` | Up to 360p. |
-| `lowest` | Up to 240p. |
-| `1080p`, `720p`, etc. | Direct resolution cap. |
+## ⚙️ Development & Testing
 
-If the exact quality is not available, yt-vd falls back to the closest available quality.
+We enforce clean formatting and test coverage:
 
-## Release Assets
-
-The automatic release pipeline outputs these platform-specific compiled executables:
-
-| Platform | Asset Name |
-| --- | --- |
-| Windows (x64) | `yt-vd-windows.exe` |
-| Linux (x64) | `yt-vd-linux` |
-| macOS (x64/Apple Silicon) | `yt-vd-macos` |
-
-## Build Binaries Locally
-
-### Windows
-```powershell
-.\build.bat
-```
-
-### Linux / macOS
 ```bash
-chmod +x build.sh
-./build.sh
-```
-Build outputs are written to `dist/`.
-
-## Semantic Versioning & Conventional Commits
-
-This project uses an automated semantic release pipeline. When you push to the `main` branch, the workflow inspects your commit messages to determine the version bump:
-- **Major bump** (e.g. `1.0.2` -> `2.0.0`): Commits containing `BREAKING CHANGE` or `!` suffix in the header (e.g. `feat!: require ffmpeg`).
-- **Minor bump** (e.g. `1.0.2` -> `1.1.0`): Commits starting with `feat:` (features).
-- **Patch bump** (e.g. `1.0.2` -> `1.0.3`): Commits starting with `fix:`, `refactor:`, `perf:`, `chore:`, `docs:`, `test:`, etc.
-
-This automatically updates `pyproject.toml`, pushes the commit, and tags the repository (triggering the binary builder workflow).
-
-## Development Checks
-```bash
+# Code linter check
 uv run ruff check src tests
+
+# Run unit and integration tests
 uv run pytest
 ```
 
-## Uninstall
-To uninstall `yt-vd` and fully clean up configuration files, database logs, and PATH environment entries, run:
-```bash
-yt-vd uninstall
-```
-*(Alternatively, manually delete the local installation dir `~/.local/bin/yt-vd` on UNIX or `%LOCALAPPDATA%\Programs\yt-vd` on Windows).*
+---
 
-## Troubleshooting
+## 📝 License
 
-### `ffmpeg` not found
-
-Install FFmpeg and restart your terminal.
-
-### `yt-vd` not found after install
-
-Restart your terminal. On Linux/macOS, ensure `~/.local/bin` is in `PATH`.
-
-### Some formats are missing
-
-Install a JavaScript runtime such as Node.js or Deno. yt-vd hides the repeated runtime warning, but the runtime can still help the downloader engine access more formats.
-
-## License
-
-MIT License.
+This project is licensed under the [MIT License](LICENSE).
