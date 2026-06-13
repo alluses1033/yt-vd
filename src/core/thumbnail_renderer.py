@@ -446,7 +446,10 @@ def get_ansi_thumbnail(
                 # Kitty native graphics protocol — highest fidelity (24-bit PNG)
                 pixel_width = width * 8
                 pixel_height = height * 16
-                resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
+                from PIL import ImageOps
+                resized_img = ImageOps.fit(
+                    rgb_img, (pixel_width, pixel_height), Image.Resampling.LANCZOS
+                )
 
                 base64_data = _image_to_base64_png(resized_img)
                 escape_seq = f"\033_Ga=T,f=100,c={width},r={height},C=1;{base64_data}\033\\"
@@ -457,7 +460,10 @@ def get_ansi_thumbnail(
                 # iTerm2 / WezTerm inline image protocol (24-bit PNG)
                 pixel_width = width * 8
                 pixel_height = height * 16
-                resized_img = rgb_img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
+                from PIL import ImageOps
+                resized_img = ImageOps.fit(
+                    rgb_img, (pixel_width, pixel_height), Image.Resampling.LANCZOS
+                )
 
                 base64_data = _image_to_base64_png(resized_img)
                 escape_seq = f"\033]1337;File=inline=1;width={width};height={height};preserveAspectRatio=1;doNotMoveCursor=1:{base64_data}\a"
@@ -467,21 +473,25 @@ def get_ansi_thumbnail(
             if protocol == "sixel":
                 # Sixel graphics — 256-color adaptive palette with dithering
                 # Supported by Windows Terminal (Win 11+), foot, mlterm, mintty, xterm
-                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 8x16
+                # Query cell pixel size to avoid stretching and blurriness; fallback to standard 10x20
                 cell_size = get_cached_cell_size()
-                cell_w, cell_h = cell_size if cell_size else (8, 16)
+                cell_w, cell_h = cell_size if cell_size else (10, 20)
 
                 pixel_width = width * cell_w
                 pixel_height = height * cell_h
-                resized_img = rgb_img.resize(
-                    (pixel_width, pixel_height), Image.Resampling.LANCZOS
+                from PIL import ImageOps
+                resized_img = ImageOps.fit(
+                    rgb_img, (pixel_width, pixel_height), Image.Resampling.LANCZOS
                 )
                 sixel_seq = _image_to_sixel(resized_img)
                 return TerminalImage(sixel_seq, width, height, is_inline=True)
 
             # Fallback: ANSI Unicode half-block characters
             # We need height * 2 because each char cell represents 2 vertical pixels
-            resized_img = rgb_img.resize((width, height * 2), Image.Resampling.LANCZOS)
+            from PIL import ImageOps
+            resized_img = ImageOps.fit(
+                rgb_img, (width, height * 2), Image.Resampling.LANCZOS
+            )
 
             # Sharpen after downscale — LANCZOS is smooth but loses crispness at
             # small sizes.  UnsharpMask recovers edge definition without halos.
