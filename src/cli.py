@@ -7,6 +7,7 @@ with no arguments launches the interactive questionary-based menu.
 from __future__ import annotations
 
 import logging
+import signal
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -692,8 +693,7 @@ def search(
                 )
                 if idx_raw != "RESIZE":
                     break
-            if idx_raw == "RESIZE":
-                continue
+
             try:
                 idx = int(idx_raw) - 1
                 if 0 <= idx < len(results):
@@ -1165,9 +1165,7 @@ def history(
                 writer.writerow(entry)
             print(buf.getvalue(), end="")
             return
-        else:
-            console.print(f"[red]Unknown export format: {export!r}. Use 'csv' or 'json'.[/]")
-            raise typer.Exit(code=1)
+
 
     table = Table(
         title=f"Download History (last {limit})",
@@ -1422,10 +1420,12 @@ Stop-Transcript
 Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
 
+        import os
         import tempfile
-        temp_dir = Path(tempfile.gettempdir())
-        script_path = temp_dir / "yt_vd_uninstall_temp.ps1"
         try:
+            fd, script_path_str = tempfile.mkstemp(prefix="yt_vd_uninstall_", suffix=".ps1")
+            os.close(fd)
+            script_path = Path(script_path_str)
             script_path.write_text(script_content, encoding="utf-8")
         except Exception as exc:
             logger.debug("Failed to write temporary uninstallation script: %s", exc)
@@ -1480,7 +1480,6 @@ def _wrapped_app_call(*args: Any, **kwargs: Any) -> Any:
     try:
         return original_call(*args, **kwargs)
     except KeyboardInterrupt:
-        import os
         import sys
         print("\n⚠ Interrupted by user — cleaning up temporary files and forcing exit...", file=sys.stderr)
         try:
@@ -1498,9 +1497,21 @@ def _wrapped_app_call(*args: Any, **kwargs: Any) -> Any:
                 SafeDownloadManager(output_dir).cleanup_temp()
         except Exception:
             pass
-        os._exit(130)
+        sys.exit(130)
     except SystemExit as e:
         # Preserve normal exit semantics so cleanup/finally handlers can run.
         raise e
+
+# Register SIGTERM signal handler to clean up temp directories on graceful termination
+def _sigterm_handler(signum, frame):
+    from core.fragment_safety import _cleanup_all_temp_dirs
+    _cleanup_all_temp_dirs()
+    sys.exit(128 + signum)
+
+try:
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+except ValueError:
+    # May fail if not imported on main thread
+    pass
 
 app.__call__ = _wrapped_app_call  # type: ignore[method-assign]

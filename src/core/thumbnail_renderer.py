@@ -27,7 +27,6 @@ class ControlSegment(Segment):
     def cell_length(self) -> int:
         return 0
 
-
 class TerminalImage:
     """Rich renderable for terminal images.
 
@@ -64,11 +63,9 @@ class TerminalImage:
             from rich.text import Text
             yield from Text.from_ansi(self.raw_sequence).__rich_console__(console, options)
 
-
 _cell_size_lock = threading.Lock()
 _cached_cell_size: tuple[int, int] | None = None
 _cell_size_queried = False
-
 
 def _parse_cell_size_response(response: bytes) -> tuple[int, int] | None:
     """Parse a CSI 16 t terminal cell-size response as (width, height)."""
@@ -81,7 +78,6 @@ def _parse_cell_size_response(response: bytes) -> tuple[int, int] | None:
     if width > 0 and height > 0:
         return width, height
     return None
-
 
 def _drain_pending_terminal_input() -> None:
     """Discard already-buffered terminal input before sending a fresh query."""
@@ -98,7 +94,6 @@ def _drain_pending_terminal_input() -> None:
 
     while select.select([sys.stdin], [], [], 0.0)[0]:
         sys.stdin.read(1)
-
 
 def query_terminal_cell_size() -> tuple[int, int] | None:
     """Query the terminal for the character cell size in pixels.
@@ -149,7 +144,6 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
         pass
     return None
 
-
 def get_cached_cell_size() -> tuple[int, int] | None:
     """Query and cache the terminal cell size in pixels thread-safely."""
     global _cached_cell_size, _cell_size_queried
@@ -159,6 +153,72 @@ def get_cached_cell_size() -> tuple[int, int] | None:
             _cell_size_queried = True
         return _cached_cell_size
 
+_sixel_support_lock = threading.Lock()
+_cached_sixel_support: bool | None = None
+_sixel_support_queried = False
+
+def _query_sixel_support() -> bool:
+    """Query the terminal's Primary Device Attributes (DA1) to check for Sixel support.
+
+    Sends ``CSI c`` and looks for ``4`` in the returned attribute list
+    (``ESC [ ? 6 2 ; 4 ; ... c`` indicates Sixel graphics support, attribute 4).
+    This is far more reliable than guessing from ``$TERM``/``$TERM_PROGRAM``,
+    which causes garbled "pixelled" output on terminals that report a
+    Sixel-ish TERM value but don't actually implement the protocol.
+    """
+    import sys
+
+    if not sys.stdout.isatty() or not sys.stdin.isatty():
+        return False
+
+    try:
+        _drain_pending_terminal_input()
+
+        sys.stdout.write("\033[c")
+        sys.stdout.flush()
+
+        response = b""
+        start_time = time.monotonic()
+        timeout = 0.2
+
+        if os.name == "nt":
+            import msvcrt
+
+            while time.monotonic() - start_time < timeout:
+                if msvcrt.kbhit():  # type: ignore[attr-defined]
+                    response += msvcrt.getch()  # type: ignore[attr-defined]
+                    if response.endswith(b"c"):
+                        break
+                else:
+                    time.sleep(0.002)
+        else:
+            import select
+
+            while time.monotonic() - start_time < timeout:
+                r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
+                if r:
+                    char = sys.stdin.read(1).encode("utf-8", errors="ignore")
+                    response += char
+                    if response.endswith(b"c"):
+                        break
+
+        decoded = response.decode("ascii", errors="ignore")
+        match = re.search(r"\x1b\[\?(\d+(?:;\d+)*)c", decoded)
+        if not match:
+            return False
+        attrs = match.group(1).split(";")
+        return "4" in attrs
+    except Exception:
+        return False
+
+def get_cached_sixel_support() -> bool:
+    """Query and cache whether the terminal supports Sixel graphics, thread-safely."""
+    global _cached_sixel_support, _sixel_support_queried
+    with _sixel_support_lock:
+        if not _sixel_support_queried:
+            _cached_sixel_support = _query_sixel_support()
+            _sixel_support_queried = True
+        return bool(_cached_sixel_support)
 
 def get_terminal_protocol() -> str | None:
     """Detect if the terminal supports a high-resolution graphics protocol.
@@ -166,12 +226,14 @@ def get_terminal_protocol() -> str | None:
     Detection priority:
       1. Kitty — native graphics protocol (highest fidelity, 24-bit)
       2. iTerm2/WezTerm — iTerm2 inline image protocol (24-bit)
-      3. Sixel — Windows Terminal (WT_SESSION), foot, mlterm, mintty, xterm
+      3. Sixel — actively probed via the DA1 (``CSI c``) device-attributes
+         query, so it's only used on terminals that actually advertise
+         support (avoids garbled/"pixelled" output on terminals that merely
+         *resemble* xterm).
       4. None — falls back to ANSI half-block characters
     """
     term = os.environ.get("TERM", "").lower()
     term_program = os.environ.get("TERM_PROGRAM", "").lower()
-    wt_session = os.environ.get("WT_SESSION", "")
 
     # Kitty — native graphics protocol
     if "kitty" in term or "kitty" in term_program:
@@ -181,24 +243,17 @@ def get_terminal_protocol() -> str | None:
     if "wezterm" in term_program or "iterm" in term_program or "iterm2" in term_program:
         return "iterm2"
 
-    # Sixel — Windows Terminal sets WT_SESSION unconditionally
-    if wt_session:
-        return "sixel"
-
-    # Sixel — other known Sixel-capable terminal emulators
-    sixel_terms = ("foot", "mlterm", "mintty", "xterm-256color")
-    if any(t in term for t in sixel_terms):
+    # Sixel — actively probe via DA1 instead of guessing from TERM
+    if get_cached_sixel_support():
         return "sixel"
 
     return None
-
 
 def _image_to_base64_png(img: Image.Image) -> str:
     """Convert PIL image to base64 encoded PNG string."""
     buf = BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
-
 
 def _image_to_sixel(img: Image.Image) -> str:
     """Convert a PIL Image to a Sixel escape sequence string.
@@ -291,7 +346,6 @@ def _image_to_sixel(img: Image.Image) -> str:
     # Parameters: P1=0 (normal aspect), P2=0 (no background), P3=0 (horizontal grid)
     return f"\033P0;0;0q\"1;1;{width};{height}{sixel_data}\033\\"
 
-
 def _is_safe_thumbnail_url(url: str) -> bool:
     """Validate that the thumbnail URL belongs to a trusted YouTube/Google CDN domain."""
     try:
@@ -310,9 +364,7 @@ def _is_safe_thumbnail_url(url: str) -> bool:
     except Exception:
         return False
 
-
 _thumbnail_bytes_cache: dict[str, bytes] = {}
-
 
 def get_ansi_thumbnail(
     url: str,
@@ -346,7 +398,8 @@ def get_ansi_thumbnail(
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             )
             with urllib.request.urlopen(req, timeout=5) as response:
-                img_bytes = response.read()
+                # Limit thumbnail download to 10MB to avoid OOM DoS
+                img_bytes = response.read(10 * 1024 * 1024)
                 _thumbnail_bytes_cache[url] = img_bytes
         except Exception:
             return None
@@ -436,4 +489,3 @@ def get_ansi_thumbnail(
     except Exception:
         # Fail silently and return None
         return None
-

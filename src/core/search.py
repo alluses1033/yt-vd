@@ -7,6 +7,7 @@ returning results as ``VideoInfo`` dataclass instances.
 from __future__ import annotations
 
 import logging
+import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -19,7 +20,9 @@ from core.ydl_options import with_base_ydl_opts
 logger = logging.getLogger(__name__)
 
 _VIDEO_SEARCH_CACHE: dict[str, list[dict[str, Any]]] = {}
+_VIDEO_CACHE_LOCK = threading.Lock()
 _PLAYLIST_SEARCH_CACHE: dict[str, list[dict[str, Any]]] = {}
+_PLAYLIST_CACHE_LOCK = threading.Lock()
 
 
 def search_youtube(
@@ -43,9 +46,10 @@ def search_youtube(
 
     # Run video search and playlist search in parallel
     def get_videos() -> list[dict[str, Any]]:
-        cached = _VIDEO_SEARCH_CACHE.get(query, [])
-        if len(cached) >= needed_limit:
-            return cached[:needed_limit]
+        with _VIDEO_CACHE_LOCK:
+            cached = _VIDEO_SEARCH_CACHE.get(query, [])
+            if len(cached) >= needed_limit:
+                return cached[:needed_limit]
 
         opts = with_base_ydl_opts({
             "skip_download": True,
@@ -71,16 +75,18 @@ def search_youtube(
         except Exception as e:
             logger.debug("Video search failed: %s", e)
             return cached[:needed_limit]
-        _VIDEO_SEARCH_CACHE[query] = results
-        if len(_VIDEO_SEARCH_CACHE) > 20:
-            first_key = next(iter(_VIDEO_SEARCH_CACHE))
-            _VIDEO_SEARCH_CACHE.pop(first_key, None)
+        with _VIDEO_CACHE_LOCK:
+            _VIDEO_SEARCH_CACHE[query] = results
+            if len(_VIDEO_SEARCH_CACHE) > 20:
+                first_key = next(iter(_VIDEO_SEARCH_CACHE))
+                _VIDEO_SEARCH_CACHE.pop(first_key, None)
         return results
 
     def get_playlists() -> list[dict[str, Any]]:
-        cached = _PLAYLIST_SEARCH_CACHE.get(query, [])
-        if len(cached) >= needed_limit:
-            return cached[:needed_limit]
+        with _PLAYLIST_CACHE_LOCK:
+            cached = _PLAYLIST_SEARCH_CACHE.get(query, [])
+            if len(cached) >= needed_limit:
+                return cached[:needed_limit]
 
         opts = with_base_ydl_opts({
             "skip_download": True,
@@ -109,10 +115,11 @@ def search_youtube(
         except Exception as e:
             logger.debug("Playlist search failed: %s", e)
             return cached[:needed_limit]
-        _PLAYLIST_SEARCH_CACHE[query] = results
-        if len(_PLAYLIST_SEARCH_CACHE) > 20:
-            first_key = next(iter(_PLAYLIST_SEARCH_CACHE))
-            _PLAYLIST_SEARCH_CACHE.pop(first_key, None)
+        with _PLAYLIST_CACHE_LOCK:
+            _PLAYLIST_SEARCH_CACHE[query] = results
+            if len(_PLAYLIST_SEARCH_CACHE) > 20:
+                first_key = next(iter(_PLAYLIST_SEARCH_CACHE))
+                _PLAYLIST_SEARCH_CACHE.pop(first_key, None)
         return results
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -141,12 +148,7 @@ def search_youtube(
     playlist_meta = {}
     playlist_entries = [
         e for e in sliced_entries
-        if (
-            e.get("_is_playlist", False)
-            or e.get("_type") == "playlist"
-            or "playlist" in e.get("url", "")
-            or "PL" in e.get("id", "")
-        )
+        if _is_playlist_entry(e)
     ]
     if playlist_entries:
         def fetch_playlist_info(pl_entry: dict[str, Any]) -> dict[str, Any] | None:
@@ -184,12 +186,7 @@ def search_youtube(
 
     video_infos: list[VideoInfo] = []
     for entry in sliced_entries:
-        is_playlist = (
-            entry.get("_is_playlist", False)
-            or entry.get("_type") == "playlist"
-            or "playlist" in entry.get("url", "")
-            or "PL" in entry.get("id", "")
-        )
+        is_playlist = _is_playlist_entry(entry)
 
         title = entry.get("title", "Unknown")
         if is_playlist and not title.startswith("[Playlist]"):
@@ -265,3 +262,13 @@ def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         deduped.append(entry)
     return deduped
+
+
+def _is_playlist_entry(entry: dict[str, Any]) -> bool:
+    """Detect if a search entry represents a playlist."""
+    return bool(
+        entry.get("_is_playlist", False)
+        or entry.get("_type") == "playlist"
+        or "playlist" in entry.get("url", "")
+        or "PL" in entry.get("id", "")
+    )

@@ -21,10 +21,10 @@ from constants import (
     APP_AUTHOR,
     APP_NAME,
     HISTORY_DB_NAME,
-    VIDEO_ID_PATTERN,
     DownloadResult,
     DownloadStatus,
 )
+from core.utils import extract_video_id
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class DownloadHistory:
             return -1
 
         # Extract video_id from URL (best effort)
-        video_id = _extract_video_id(result.url)
+        video_id = extract_video_id(result.url)
 
         now = datetime.now(UTC).isoformat()
 
@@ -190,7 +190,7 @@ class DownloadHistory:
 
         insert_data = []
         for result in completed_results:
-            video_id = _extract_video_id(result.url)
+            video_id = extract_video_id(result.url)
             insert_data.append((
                 result.url,
                 video_id,
@@ -245,7 +245,7 @@ class DownloadHistory:
         Returns:
             True if the URL exists in history.
         """
-        video_id = _extract_video_id(url)
+        video_id = extract_video_id(url)
 
         with self._lock, self._connect() as conn:
             if video_id:
@@ -364,20 +364,7 @@ class DownloadHistory:
 # Helpers
 # ──────────────────────────────────────────────
 
-def _extract_video_id(url: str) -> str:
-    """Extract the YouTube video ID from a URL.
 
-    Handles standard, short, and embed URL formats.
-
-    Args:
-        url: A YouTube URL.
-
-    Returns:
-        The video ID string, or an empty string if extraction fails.
-    """
-    if match := VIDEO_ID_PATTERN.search(url):
-        return match.group(1)
-    return ""
 
 
 # ──────────────────────────────────────────────
@@ -385,12 +372,15 @@ def _extract_video_id(url: str) -> str:
 # ──────────────────────────────────────────────
 
 _default_history: DownloadHistory | None = None
+_default_history_lock = threading.Lock()
 
 
 def _get_history_manager() -> DownloadHistory:
     global _default_history
     if _default_history is None:
-        _default_history = DownloadHistory()
+        with _default_history_lock:
+            if _default_history is None:
+                _default_history = DownloadHistory()
     return _default_history
 
 

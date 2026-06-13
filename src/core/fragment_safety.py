@@ -7,8 +7,10 @@ final destination after integrity verification.  Supports resume via
 
 from __future__ import annotations
 
+import atexit
 import logging
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,32 @@ from typing import Any
 from constants import TEMP_DIR_NAME
 
 logger = logging.getLogger(__name__)
+
+# Registry of active temporary download directories for cleanup on exit
+_active_temp_dirs: set[Path] = set()
+_active_temp_dirs_lock = threading.Lock()
+
+def register_temp_dir(temp_dir: Path) -> None:
+    """Register a temp dir for cleanup on exit."""
+    with _active_temp_dirs_lock:
+        _active_temp_dirs.add(temp_dir)
+
+def unregister_temp_dir(temp_dir: Path) -> None:
+    """Unregister a temp dir after successful cleanup."""
+    with _active_temp_dirs_lock:
+        _active_temp_dirs.discard(temp_dir)
+
+def _cleanup_all_temp_dirs() -> None:
+    """atexit handler to clean up all remaining temp directories."""
+    with _active_temp_dirs_lock:
+        dirs = list(_active_temp_dirs)
+    for d in dirs:
+        try:
+            cleanup_temp(d, force=True)
+        except Exception:
+            pass
+
+atexit.register(_cleanup_all_temp_dirs)
 
 # Minimum valid file size (bytes) — anything smaller is likely corrupted
 _MIN_VALID_SIZE = 1024  # 1 KiB
@@ -76,12 +104,13 @@ class SafeDownloadManager:
         cleanup_orphaned_temp_dirs(self._output_dir)
         self._temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # Hide the .yt-vd-temp folder on Windows
+        # Hide the .yt-vd-temp folder on Windows/macOS
         if self._temp_dir.name == TEMP_DIR_NAME:
             _hide_folder(self._temp_dir)
         elif self._temp_dir.parent.name == TEMP_DIR_NAME:
             _hide_folder(self._temp_dir.parent)
 
+        register_temp_dir(self._temp_dir)
         return self._temp_dir
 
     def get_ydl_paths(self) -> dict[str, Any]:
@@ -148,6 +177,7 @@ class SafeDownloadManager:
         If ``force`` is True, all files including .part files are deleted.
         """
         cleanup_temp(self._temp_dir, force=force)
+        unregister_temp_dir(self._temp_dir)
 
 
 # ──────────────────────────────────────────────
@@ -155,7 +185,7 @@ class SafeDownloadManager:
 # ──────────────────────────────────────────────
 
 def _hide_folder(path: Path) -> None:
-    """Set the hidden attribute on a folder (Windows only)."""
+    """Set the hidden attribute on a folder (Windows & macOS)."""
     import os
     if os.name == "nt":
         import ctypes
@@ -165,6 +195,13 @@ def _hide_folder(path: Path) -> None:
             return
         try:
             windll.kernel32.SetFileAttributesW(str(path), file_attribute_hidden)
+        except Exception:
+            pass
+    elif hasattr(os, "chflags"):
+        import stat
+        try:
+            current_flags = getattr(os.stat(path), "st_flags", 0)
+            os.chflags(str(path), current_flags | stat.UF_HIDDEN)
         except Exception:
             pass
 

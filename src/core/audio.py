@@ -141,6 +141,7 @@ def extract_audio(
             raise yt_dlp.utils.DownloadError("Audio extraction returned no info")
         return cast(dict[str, Any], info)
 
+    cleanup_done = False
     try:
         from core.retry import retry_operation
         info = retry_operation(
@@ -165,12 +166,14 @@ def extract_audio(
         if temp_file_path and temp_file_path.exists():
             is_valid = verify_file_integrity(temp_file_path)
             if not is_valid:
-                logger.warning("File integrity check failed for %s", temp_file_path)
+                raise yt_dlp.utils.DownloadError(f"File integrity check failed for {temp_file_path.name}")
 
             # Atomically move from temp to final directory
             final_path = safety.move_to_final(temp_file_path)
             result.file_path = final_path
             result.file_size = final_path.stat().st_size
+        else:
+            raise yt_dlp.utils.DownloadError("No audio file was found after download completed")
 
         result.status = DownloadStatus.COMPLETED
         result.elapsed_seconds = time.monotonic() - start_time
@@ -181,6 +184,7 @@ def extract_audio(
         safe_add_to_history(result)
 
         safety.cleanup_temp(force=True)
+        cleanup_done = True
         return result
 
     except Exception as e:
@@ -190,7 +194,11 @@ def extract_audio(
         tracker.set_status(DownloadStatus.FAILED)
         logger.error("Audio extraction failed for %s: %s", url, result.error_message)
         safety.cleanup_temp()
+        cleanup_done = True
         return result
+    finally:
+        if not cleanup_done:
+            safety.cleanup_temp()
 
 
 

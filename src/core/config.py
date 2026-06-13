@@ -192,7 +192,23 @@ class ConfigManager:
         """Internal save — must be called while holding ``self._lock``."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         content = _write_toml(self._config.to_dict())
-        self._config_path.write_text(content, encoding="utf-8")
+        import os
+        import tempfile
+        temp_fd, temp_file_path = tempfile.mkstemp(
+            dir=self._config_path.parent,
+            prefix=".config_temp_",
+            suffix=".toml"
+        )
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.replace(temp_file_path, self._config_path)
+        except Exception:
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                pass
+            raise
         logger.debug("Configuration saved to %s", self._config_path)
 
     def update(self, **kwargs: Any) -> AppConfig:

@@ -490,8 +490,6 @@ def _action_search() -> None:
                 )
                 if idx_raw != "RESIZE":
                     break
-            if idx_raw == "RESIZE":
-                continue
             try:
                 idx = int(idx_raw) - 1
                 if 0 <= idx < len(results):

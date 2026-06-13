@@ -118,7 +118,6 @@ def download_by_chapters(
     quality: str = "best",
     video_format: str = "mp4",
     progress_callback: ProgressCallback | None = None,
-    verbose: bool = False,
     **kwargs: Any,
 ) -> list[DownloadResult]:
     """Download a video split by its chapters.
@@ -206,18 +205,19 @@ def download_by_chapters(
                     result.status = DownloadStatus.COMPLETED
                     result.duration = end - start
 
-                    # Find in temp directory
                     from core.utils import find_output_file
                     temp_file_path = find_output_file(info, safety.temp_dir, video_format)
                     if temp_file_path and temp_file_path.exists():
                         is_valid = verify_file_integrity(temp_file_path)
                         if not is_valid:
-                            logger.warning("File integrity check failed for %s", temp_file_path)
+                            raise yt_dlp.utils.DownloadError(f"File integrity check failed for {temp_file_path.name}")
 
                         # Atomically move from temp to final directory
                         final_path = safety.move_to_final(temp_file_path)
                         result.file_path = final_path
                         result.file_size = final_path.stat().st_size
+                    else:
+                        raise yt_dlp.utils.DownloadError("No chapter file was found after download completed")
                 else:
                     result.status = DownloadStatus.FAILED
                     result.error_message = "No info returned"

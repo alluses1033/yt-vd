@@ -4,6 +4,4 @@ try:
     from importlib.metadata import version
     __version__ = version("yt-vd")
 except Exception:
-    __version__ = "1.0.2"
-
-__app_name__ = "yt-vd"
+    __version__ = "1.1.16"

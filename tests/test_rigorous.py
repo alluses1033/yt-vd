@@ -389,6 +389,7 @@ def test_download_by_chapters_mock(mock_check_ffmpeg, tmp_path):
     expected_final_file_2 = tmp_path / "02 - Middle.mp4"
 
     with patch("core.metadata.get_chapters", return_value=mock_chapters), \
+         patch("core.metadata.verify_file_integrity", return_value=True), \
          patch("yt_dlp.YoutubeDL") as mock_ytdl_class:
 
         mock_instance = MagicMock()

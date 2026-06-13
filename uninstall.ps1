@@ -1,8 +1,6 @@
 # Error handling and preference setup
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "Continue"
 
-$Repo = "alluses1033/yt-vd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd\yt-vd"
 $ParentAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"

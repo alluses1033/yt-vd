@@ -104,9 +104,7 @@ class VideoFormat(StrEnum):
 # Parallelism
 # ──────────────────────────────────────────────
 
-# Default parallel workers = CPU count, capped at 8
-MAX_PARALLEL_CAP = 8
-DEFAULT_PARALLEL_WORKERS = min(os.cpu_count() or 4, MAX_PARALLEL_CAP)
+DEFAULT_PARALLEL_WORKERS = min(os.cpu_count() or 4, 8)
 DEFAULT_FRAGMENT_THREADS = 4
 
 # ──────────────────────────────────────────────

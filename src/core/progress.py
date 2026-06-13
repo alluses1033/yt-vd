@@ -433,19 +433,7 @@ class ProgressTracker:
             self._last_callback_time = current_time
 
             # Snapshot for callbacks (avoid holding the lock)
-            snapshot = ProgressInfo(
-                video_id=self._progress.video_id,
-                title=self._progress.title,
-                status=self._progress.status,
-                downloaded_bytes=self._progress.downloaded_bytes,
-                total_bytes=self._progress.total_bytes,
-                speed=self._progress.speed,
-                eta=self._progress.eta,
-                percent=self._progress.percent,
-                fragment_index=self._progress.fragment_index,
-                fragment_count=self._progress.fragment_count,
-                elapsed=self._progress.elapsed,
-            )
+            snapshot = self._make_snapshot()
             callbacks = list(self._callbacks)
 
         # Fire callbacks outside the lock
@@ -466,19 +454,7 @@ class ProgressTracker:
             self._progress.elapsed = time.monotonic() - self._start_time
             self._progress.video_id = self.video_id
             self._progress.title = self.title
-            snapshot = ProgressInfo(
-                video_id=self._progress.video_id,
-                title=self._progress.title,
-                status=status,
-                downloaded_bytes=self._progress.downloaded_bytes,
-                total_bytes=self._progress.total_bytes,
-                speed=self._progress.speed,
-                eta=self._progress.eta,
-                percent=self._progress.percent,
-                fragment_index=self._progress.fragment_index,
-                fragment_count=self._progress.fragment_count,
-                elapsed=self._progress.elapsed,
-            )
+            snapshot = self._make_snapshot()
             callbacks = list(self._callbacks)
 
         for cb in callbacks:
@@ -491,19 +467,23 @@ class ProgressTracker:
     def current(self) -> ProgressInfo:
         """Get a snapshot of the current progress state."""
         with self._lock:
-            return ProgressInfo(
-                video_id=self._progress.video_id,
-                title=self._progress.title,
-                status=self._progress.status,
-                downloaded_bytes=self._progress.downloaded_bytes,
-                total_bytes=self._progress.total_bytes,
-                speed=self._progress.speed,
-                eta=self._progress.eta,
-                percent=self._progress.percent,
-                fragment_index=self._progress.fragment_index,
-                fragment_count=self._progress.fragment_count,
-                elapsed=self._progress.elapsed,
-            )
+            return self._make_snapshot()
+
+    def _make_snapshot(self) -> ProgressInfo:
+        """Create a snapshot of the current progress state. MUST be called under self._lock."""
+        return ProgressInfo(
+            video_id=self._progress.video_id,
+            title=self._progress.title,
+            status=self._progress.status,
+            downloaded_bytes=self._progress.downloaded_bytes,
+            total_bytes=self._progress.total_bytes,
+            speed=self._progress.speed,
+            eta=self._progress.eta,
+            percent=self._progress.percent,
+            fragment_index=self._progress.fragment_index,
+            fragment_count=self._progress.fragment_count,
+            elapsed=self._progress.elapsed,
+        )
 
     def reset(self) -> None:
         """Reset the tracker to initial state for reuse."""

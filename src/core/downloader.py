@@ -340,7 +340,6 @@ def download_video(
         subtitle_langs = ["en"]
 
     # Validate quality string upfront
-    from core.quality import resolve_format_string
     resolve_format_string(quality)
 
     result = DownloadResult(url=url)
@@ -437,6 +436,7 @@ def download_video(
             raise DownloadError("Download returned no info")
         return cast(dict[str, Any], info)
 
+    cleanup_done = False
     try:
         from core.retry import retry_operation
         download_info = retry_operation(
@@ -462,7 +462,7 @@ def download_video(
             # Verify integrity
             is_valid = verify_file_integrity(final_file_path)
             if not is_valid:
-                logger.warning("File integrity check failed for %s", final_file_path)
+                raise DownloadError(f"File integrity check failed for {final_file_path.name}")
 
             if use_temp_dir:
                 # Atomically move from temp to final directory
@@ -482,8 +482,7 @@ def download_video(
                 except Exception as e:
                     logger.debug("Failed to clean up leftover subtitles: %s", e)
         else:
-            result.status = DownloadStatus.COMPLETED
-            tracker.set_status(DownloadStatus.COMPLETED)
+            raise DownloadError("No output file was found after download completed")
 
         result.elapsed_seconds = time.monotonic() - start_time
         # Add to history database using shared safe helper
@@ -492,6 +491,7 @@ def download_video(
 
         # Clean up temp directory
         safety.cleanup_temp(force=True)
+        cleanup_done = True
         return result
 
     except Exception as e:
@@ -503,7 +503,11 @@ def download_video(
 
         # Clean up temp directory even on failure so empty folders are removed
         safety.cleanup_temp()
+        cleanup_done = True
         return result
+    finally:
+        if not cleanup_done:
+            safety.cleanup_temp()
 
 
 # ──────────────────────────────────────────────
@@ -570,14 +574,18 @@ def download_clip(
         t_str = str(t).strip()
         if not t_str:
             return None
-        if _NUMERIC_TIME_PATTERN.match(t_str):
+        try:
+            if _NUMERIC_TIME_PATTERN.match(t_str):
+                return float(t_str)
+            parts = t_str.split(":")
+            if len(parts) == 2:
+                return float(parts[0]) * 60 + float(parts[1])
+            elif len(parts) == 3:
+                return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
             return float(t_str)
-        parts = t_str.split(":")
-        if len(parts) == 2:
-            return float(parts[0]) * 60 + float(parts[1])
-        elif len(parts) == 3:
-            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-        return float(t_str)
+        except ValueError:
+            logger.warning("Invalid time format: %s. Using default/None.", t_str)
+            return None
 
     start_sec = to_secs(start_time) or 0.0
     end_sec = to_secs(end_time)
