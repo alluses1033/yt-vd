@@ -113,8 +113,17 @@ def _drain_pending_terminal_input() -> None:
 
     import select
 
-    while select.select([sys.stdin], [], [], 0.0)[0]:
-        sys.stdin.read(1)
+    try:
+        fd = sys.stdin.fileno()
+        while select.select([fd], [], [], 0.0)[0]:
+            os.read(fd, 1)
+    except Exception:
+        try:
+            while select.select([sys.stdin], [], [], 0.0)[0]:
+                sys.stdin.read(1)
+        except Exception:
+            pass
+
 
 def _read_vt_sequence_unix(query: str, end_char: bytes, timeout: float = 0.4) -> bytes:
     """Send a VT query and read the response in raw mode on Unix/Linux."""
@@ -127,45 +136,71 @@ def _read_vt_sequence_unix(query: str, end_char: bytes, timeout: float = 0.4) ->
         import select
         import termios
         import tty
-    except ImportError:
-        return b""
-
-    if not sys.stdin.isatty():
-        return b""
-
-    fd = sys.stdin.fileno()
-    try:
+        fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)  # type: ignore[attr-defined]
+        has_termios = True
     except Exception:
-        return b""
+        has_termios = False
 
-    try:
-        # Set raw mode to disable echo and line buffering
-        tty.setraw(fd)  # type: ignore[attr-defined]
+    if has_termios:
+        try:
+            # Set raw mode to disable echo and line buffering
+            tty.setraw(fd)  # type: ignore[attr-defined]
 
-        # Send query
-        sys.stdout.write(query)
-        sys.stdout.flush()
+            # Drain any pending input at OS level while in raw mode
+            while select.select([fd], [], [], 0.0)[0]:
+                os.read(fd, 1)
+
+            # Send query
+            sys.stdout.write(query)
+            sys.stdout.flush()
+
+            response = b""
+            start_time = time.monotonic()
+            while time.monotonic() - start_time < timeout:
+                r, _, _ = select.select([fd], [], [], timeout - (time.monotonic() - start_time))
+                if r:
+                    char = os.read(fd, 1)
+                    if not char:
+                        break
+                    response += char
+                    if response.endswith(end_char):
+                        break
+                else:
+                    break
+            return response
+        except Exception:
+            return b""
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+    else:
+        # Fallback for non-TTY or mock/test environment
+        try:
+            sys.stdout.write(query)
+            sys.stdout.flush()
+        except Exception:
+            pass
 
         response = b""
         start_time = time.monotonic()
         while time.monotonic() - start_time < timeout:
-            r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
-            if r:
-                char = sys.stdin.read(1).encode("utf-8", errors="ignore")
-                response += char
-                if response.endswith(end_char):
+            try:
+                r, _, _ = select.select([sys.stdin], [], [], timeout - (time.monotonic() - start_time))
+                if r:
+                    char_str = sys.stdin.read(1)
+                    if not char_str:
+                        break
+                    response += char_str.encode("utf-8", errors="ignore")
+                    if response.endswith(end_char):
+                        break
+                else:
                     break
-            else:
+            except Exception:
                 break
         return response
-    except Exception:
-        return b""
-    finally:
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # type: ignore[attr-defined]
-        except Exception:
-            pass
 
 
 def query_terminal_cell_size() -> tuple[int, int] | None:
