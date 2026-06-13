@@ -362,10 +362,14 @@ def _action_search() -> None:
     from core.search import search_youtube
 
     current_page = 1
+    results = None
+    ansi_thumbnails: dict[str, Any] = {}
     while True:
-        console.clear()
-        console.print(f"\n[cyan]Searching for:[/] [bold]{query.strip()}[/] (Page {current_page}) ...\n")
-        results = search_youtube(query=query.strip(), max_results=count, page=current_page)
+        if results is None:
+            console.clear()
+            console.print(f"\n[cyan]Searching for:[/] [bold]{query.strip()}[/] (Page {current_page}) ...\n")
+            results = search_youtube(query=query.strip(), max_results=count, page=current_page)
+            ansi_thumbnails = {}
 
         if not results:
             console.print("[red]No results found.[/]")
@@ -377,12 +381,14 @@ def _action_search() -> None:
                 ).ask()
                 if choice == "Go back to previous page":
                     current_page -= 1
+                    results = None
                     continue
                 elif choice == "New search query":
                     new_query = questionary.text("Enter search query:", style=CUSTOM_STYLE).ask()
                     if new_query and new_query.strip():
                         query = new_query.strip()
                         current_page = 1
+                    results = None
                     continue
                 else:
                     break
@@ -391,8 +397,6 @@ def _action_search() -> None:
 
         # Check if console is a terminal
         is_term = bool(getattr(console, "is_terminal", False))
-
-        ansi_thumbnails: dict[str, Any] = {}
         from rich.table import Table
 
         def draw_search_results_table():
@@ -537,15 +541,18 @@ def _action_search() -> None:
             continue
         elif action == "Next page of results":
             current_page += 1
+            results = None
             continue
         elif action == "Previous page of results":
             current_page = max(1, current_page - 1)
+            results = None
             continue
         elif action == "New search query":
             new_query = questionary.text("Enter search query:", style=CUSTOM_STYLE).ask()
             if new_query and new_query.strip():
                 query = new_query.strip()
                 current_page = 1
+            results = None
             continue
         else:
             break

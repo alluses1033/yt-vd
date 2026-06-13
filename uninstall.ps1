@@ -5,6 +5,14 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd\yt-vd"
 $ParentAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
 
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$IsInPath = if ($UserPath) { ($UserPath -split ";") -contains $InstallDir -or ($UserPath -split ";") -contains "$InstallDir\" } else { $false }
+
+if (-not (Test-Path -LiteralPath $InstallDir) -and -not (Test-Path -LiteralPath $UserAppDataDir) -and -not $IsInPath) {
+    Write-Host "yt-vd is not currently installed."
+    Exit 0
+}
+
 Write-Host "========================================="
 Write-Host "           Uninstalling yt-vd            "
 Write-Host "========================================="

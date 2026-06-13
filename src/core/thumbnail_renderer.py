@@ -79,6 +79,27 @@ def _parse_cell_size_response(response: bytes) -> tuple[int, int] | None:
         return width, height
     return None
 
+def _enable_vt_mode_windows() -> None:
+    """Enable Virtual Terminal Input and Processing on Windows."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        # ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+        h_stdin = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode_in = ctypes.c_ulong()
+        if kernel32.GetConsoleMode(h_stdin, ctypes.byref(mode_in)):
+            kernel32.SetConsoleMode(h_stdin, mode_in.value | 0x0200)
+
+        # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        h_stdout = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode_out = ctypes.c_ulong()
+        if kernel32.GetConsoleMode(h_stdout, ctypes.byref(mode_out)):
+            kernel32.SetConsoleMode(h_stdout, mode_out.value | 0x0004)
+    except Exception:
+        pass
+
 def _drain_pending_terminal_input() -> None:
     """Discard already-buffered terminal input before sending a fresh query."""
     import sys
@@ -106,6 +127,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
         return None
 
     try:
+        _enable_vt_mode_windows()
         _drain_pending_terminal_input()
 
         # Send CSI 16 t
@@ -114,7 +136,7 @@ def query_terminal_cell_size() -> tuple[int, int] | None:
 
         response = b""
         start_time = time.monotonic()
-        timeout = 0.2  # 200ms timeout is plenty for local terminals
+        timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
 
         if os.name == "nt":
             import msvcrt
@@ -172,6 +194,7 @@ def _query_sixel_support() -> bool:
         return False
 
     try:
+        _enable_vt_mode_windows()
         _drain_pending_terminal_input()
 
         sys.stdout.write("\033[c")
@@ -179,7 +202,7 @@ def _query_sixel_support() -> bool:
 
         response = b""
         start_time = time.monotonic()
-        timeout = 0.2
+        timeout = 0.4  # Slightly longer timeout for Windows conhost compatibility
 
         if os.name == "nt":
             import msvcrt

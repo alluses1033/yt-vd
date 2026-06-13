@@ -36,13 +36,12 @@ function Get-ReleaseAsset {
 }
 
 function Stop-ExistingProcesses {
-
-    Write-Host "Stopping running yt-vd processes..."
-
-    Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-
-    Start-Sleep -Seconds 1
+    $Running = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+    if ($Running) {
+        Write-Host "Stopping running yt-vd processes..."
+        $Running | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
 }
 
 function Download-Asset {
@@ -159,8 +158,19 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\yt-vd"
 $UserAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd\yt-vd"
 $ParentAppDataDir = Join-Path $env:LOCALAPPDATA "yt-vd"
 
-Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$IsInPath = if ($UserPath) { ($UserPath -split ";") -contains $InstallDir -or ($UserPath -split ";") -contains "$InstallDir\" } else { $false }
+
+if (-not (Test-Path -LiteralPath $InstallDir) -and -not (Test-Path -LiteralPath $UserAppDataDir) -and -not $IsInPath) {
+    Write-Host "yt-vd is not currently installed."
+    Exit 0
+}
+
+$RunningProcesses = Get-Process -Name "yt-vd", "yt-vd-gui" -ErrorAction SilentlyContinue
+if ($RunningProcesses) {
+    Write-Host "Stopping running yt-vd processes..."
+    $RunningProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 
 if (Test-Path -LiteralPath $UserAppDataDir) {
     Remove-Item -LiteralPath $UserAppDataDir -Recurse -Force
@@ -176,8 +186,6 @@ if (Test-Path -LiteralPath $ParentAppDataDir) {
 if (Test-Path -LiteralPath $InstallDir) {
     Remove-Item -LiteralPath $InstallDir -Recurse -Force
 }
-
-$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 
 if ($UserPath) {
 
