@@ -5,3 +5,4 @@ rich>=15.0.0
 questionary>=2.1.0
 platformdirs>=4.9.0
 pillow>=12.2.0
+zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
