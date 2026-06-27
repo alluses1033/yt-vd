@@ -1,6 +1,6 @@
 [project]
 name = "yt-vd"
-version = "2.0.6"
+version = "2.0.7"
 description = "A powerful YouTube video & playlist downloader with CLI — parallel downloads, smart quality fallback, audio extraction, and more."
 readme = "README.md"
 authors = [
